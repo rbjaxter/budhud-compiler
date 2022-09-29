@@ -46,9 +46,9 @@ namespace BudhudCompiler
 	/// </summary>
 	class FileLoader : IIncludedFileLoader
 	{
-		string BasePath;
 		bool SkipMissingFiles;
 		bool Silent;
+		Stack<(string dirName, string filePath, string contents)> History = new Stack<(string dirName, string filePath, string contents)>();
 		/// <summary>
 		/// A list of #base or #include files that are missing, but at this time we don't know for sure if they are #base or #include directives. That gets figured out later.
 		/// </summary>
@@ -58,22 +58,62 @@ namespace BudhudCompiler
 		/// </summary>
 		public Dictionary<string, string> DiscoveredDirectives = new Dictionary<string, string>();
 
-		public FileLoader(string basePath, bool skipMissingFiles, bool silent)
+		public FileLoader(string startingFile, bool skipMissingFiles, bool silent)
 		{
-			this.BasePath = basePath;
-			this.SkipMissingFiles = skipMissingFiles;
-			this.Silent = silent;
+			SkipMissingFiles = skipMissingFiles;
+			Silent = silent;
+			History.Push
+			(
+				(
+					dirName: GetDirectoryName(startingFile), 
+					filePath: startingFile, 
+					contents: File.ReadAllText(startingFile)
+				)
+			);
 		}
 
 		Stream IIncludedFileLoader.OpenFile(string filePath)
 		{
-			var combinedPath = Path.Combine(this.BasePath, filePath);
+			var combinedPath = Path.Combine(History.Peek().dirName, filePath);
 			var resolvedPath = Path.GetFullPath(combinedPath);
 			if (File.Exists(resolvedPath))
 			{
 				if (!Silent)
 				{
 					Console.WriteLine($"Processing #base or #include: {resolvedPath}");
+				}
+
+				// Do all this bullshit.
+				var foundInLastFile = false;
+				var done = false;
+				while (!foundInLastFile && !done)
+				{
+					var rx = new Regex(@"(^\s*(?:#base|#include)\s*""" + Regex.Escape(filePath) + @"\"")", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+					var latestHistoryEntry = History.Peek();
+					var resolvedFilePath = Path.GetFullPath(Path.Combine(latestHistoryEntry.dirName, filePath));
+					if (File.Exists(resolvedFilePath))
+					{
+						foundInLastFile = rx.IsMatch(latestHistoryEntry.contents);
+						if (foundInLastFile)
+						{
+							History.Push
+							(
+								(
+									dirName: GetDirectoryName(resolvedFilePath),
+									filePath: resolvedFilePath,
+									contents: File.ReadAllText(resolvedFilePath)
+								)
+							);
+						}
+						else
+						{
+							History.Pop();
+						}
+					}
+					else
+					{
+						done = true;
+					}
 				}
 
 				// Parse the file to add its directives to the DiscoveredDirectives dictionary.
@@ -104,6 +144,21 @@ namespace BudhudCompiler
 			MissingDirectiveFiles.Add(filePath);
 			return Stream.Null;
 		}
+
+		string GetDirectoryName(string filePath)
+		{
+			var dirName = Path.GetDirectoryName(filePath);
+			if (dirName == null)
+			{
+				throw new InvalidDataException($"Could not extract directory name from current file \"{filePath}\". Is it a valid file path?");
+			}
+			return dirName;
+		}
+
+		int GetPathDepth(string filePath)
+		{
+			return Path.GetFullPath(filePath).Split(Path.DirectorySeparatorChar, System.StringSplitOptions.RemoveEmptyEntries).Length;
+		}
 	}
 
 	class Program
@@ -128,14 +183,7 @@ namespace BudhudCompiler
 				var allDirectives = ListDirectives(fullText);
 				var missingDirectiveFiles = new List<string>();
 				var inputStream = File.OpenRead(options.Input);
-				var dirName = Path.GetDirectoryName(options.Input);
-
-				if (dirName == null)
-				{
-					throw new Exception("Could not extract directory name from --filename. Is it a valid file path?");
-				}
-
-				var fileLoader = new FileLoader(dirName, options.SkipMissingFiles, options.Silent);
+				var fileLoader = new FileLoader(options.Input, options.SkipMissingFiles, options.Silent);
 				var serializerOptions = new KVSerializerOptions
 				{
 					FileLoader = fileLoader,
