@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using CommandLine;
 using ValveKeyValue;
 
@@ -69,8 +69,13 @@ namespace BudhudCompiler
 
 				var fullText = File.ReadAllText(resolvedPath);
 				var directives = Program.ListDirectives(fullText);
-				DiscoveredDirectives = DiscoveredDirectives.Concat(directives)
-					   .ToDictionary(x => x.Key, x => x.Value);
+				foreach (var directive in directives)
+				{
+					if (!DiscoveredDirectives.ContainsKey(directive.Key))
+					{
+						DiscoveredDirectives.Add(directive.Key, directive.Value);
+					}
+				}
 
 				var stream = File.OpenRead(resolvedPath);
 				return stream;
@@ -125,10 +130,21 @@ namespace BudhudCompiler
 				var kv = KVSerializer.Create(KVSerializationFormat.KeyValues1Text);
 				KVObject data = kv.Deserialize(inputStream, serializerOptions);
 
-				// Catalog any directives that the file loader discovered.
-				allDirectives = allDirectives.Concat(fileLoader.DiscoveredDirectives)
-					   .ToDictionary(x => x.Key, x => x.Value);
-				missingDirectiveFiles.AddRange(fileLoader.MissingDirectiveFiles);
+				// Catalog any directives that the file loader discovered, avoiding duplicates.
+				foreach (var directive in fileLoader.DiscoveredDirectives)
+				{
+					if (!allDirectives.ContainsKey(directive.Key))
+					{
+						allDirectives.Add(directive.Key, directive.Value);
+					}
+				}
+				foreach (var missingFile in fileLoader.MissingDirectiveFiles)
+				{
+					if (!missingDirectiveFiles.Contains(missingFile))
+					{
+						missingDirectiveFiles.Add(missingFile);
+					}
+				}
 
 				// Figure out which directives point to missing files and add those directives to the output.
 				var addedMissingDirectiveToOutput = false;
