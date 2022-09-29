@@ -29,7 +29,7 @@ namespace BudhudCompiler
 			"skipMissingFiles",
 			Required = false,
 			Default = true,
-			HelpText = "If false, throws an error when a #base file isn't present on disk.")]
+			HelpText = "If false, throws an error when a #base or #include file isn't present on disk.")]
 		public bool SkipMissingFiles { get; set; }
 
 		[Option(
