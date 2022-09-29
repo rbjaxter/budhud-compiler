@@ -22,28 +22,38 @@ namespace BudhudCompiler
 		public string Output { get; set; } = "";
 
 		[Option(
-			's',
+			'm',
 			"skipMissingFiles",
 			Required = false,
 			Default = true,
 			HelpText = "If false, throws an error when a #base file isn't present on disk.")]
 		public bool SkipMissingFiles { get; set; }
+
+		[Option(
+			's',
+			"silent",
+			Required = false,
+			Default = false,
+			HelpText = "If true, no information will be output to the console (aside from the finalized output if no output file is specified).")]
+		public bool Silent { get; set; }
 	}
 
 	class FileLoader : IIncludedFileLoader
 	{
-		public string BasePath;
-		public bool SkipMissingFiles;
+		string BasePath;
+		bool SkipMissingFiles;
+		bool Silent;
 		/// <summary>
 		/// A list of #base or #include files that are missing, but at this time we don't know for sure if they are #base or #include directives. That gets figured out later.
 		/// </summary>
 		public List<string> MissingDirectiveFiles = new List<string>();
 		public Dictionary<string, string> DiscoveredDirectives = new Dictionary<string, string>();
 
-		public FileLoader(string basePath, bool skipMissingFiles)
+		public FileLoader(string basePath, bool skipMissingFiles, bool silent)
 		{
 			this.BasePath = basePath;
 			this.SkipMissingFiles = skipMissingFiles;
+			this.Silent = silent;
 		}
 
 		Stream IIncludedFileLoader.OpenFile(string filePath)
@@ -52,8 +62,11 @@ namespace BudhudCompiler
 			var resolvedPath = Path.GetFullPath(combinedPath);
 			if (File.Exists(resolvedPath))
 			{
-				Console.WriteLine($"Processing #base or #include: {resolvedPath}");
-				
+				if (!Silent)
+				{
+					Console.WriteLine($"Processing #base or #include: {resolvedPath}");
+				}
+
 				var fullText = File.ReadAllText(resolvedPath);
 				var directives = Program.ListDirectives(fullText);
 				DiscoveredDirectives = DiscoveredDirectives.Concat(directives)
@@ -67,7 +80,11 @@ namespace BudhudCompiler
 				throw new FileNotFoundException("Resource not found.", filePath);
 			}
 
-			Console.WriteLine($"Skipping non-existent #base or #include: {resolvedPath}");
+			if (!Silent)
+			{
+				Console.WriteLine($"Skipping non-existent #base or #include: {resolvedPath}");
+			}
+
 			MissingDirectiveFiles.Add(filePath);
 			return Stream.Null;
 		}
@@ -81,7 +98,10 @@ namespace BudhudCompiler
 		{
 			Parser.Default.ParseArguments<Options>(args).WithParsed(options =>
 			{
-				Console.WriteLine($"Entry point: {options.Input}");
+				if (!options.Silent)
+				{
+					Console.WriteLine($"Entry point: {options.Input}");
+				}
 
 				var output = "";
 				var fullText = File.ReadAllText(options.Input);
@@ -90,15 +110,17 @@ namespace BudhudCompiler
 				var inputStream = File.OpenRead(options.Input);
 				var dirName = Path.GetDirectoryName(options.Input);
 
-				if (dirName == null) {
+				if (dirName == null)
+				{
 					throw new Exception("Could not extract directory name from --filename. Is it a valid file path?");
 				}
 
-				var fileLoader = new FileLoader(dirName, options.SkipMissingFiles);
+				var fileLoader = new FileLoader(dirName, options.SkipMissingFiles, options.Silent);
 				var serializerOptions = new KVSerializerOptions
 				{
 					FileLoader = fileLoader,
 				};
+				serializerOptions.Conditions.Add("WIN32");
 
 				var kv = KVSerializer.Create(KVSerializationFormat.KeyValues1Text);
 				KVObject data = kv.Deserialize(inputStream, serializerOptions);
@@ -114,19 +136,29 @@ namespace BudhudCompiler
 				{
 					foreach (var directive in allDirectives)
 					{
-						if (directive.Key.Contains(missingFile)) {
+						if (directive.Key.Contains(missingFile))
+						{
 							output = String.Concat(output, $"{directive.Key.Trim()}\n");
 							addedMissingDirectiveToOutput = true;
 						}
 					}
 				}
 
-				if (addedMissingDirectiveToOutput) {
+				if (addedMissingDirectiveToOutput)
+				{
 					output = String.Concat(output, "\n");
 				}
 
 				output = String.Concat(output, StringifyKVObject(data));
-				Console.Write($"\n{output}");
+
+				if (options.Output != "")
+				{
+					File.WriteAllText(options.Output, output);
+				}
+				else
+				{
+					Console.Write($"\n{output}");
+				}
 			});
 		}
 
