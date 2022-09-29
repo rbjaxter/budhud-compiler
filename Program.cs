@@ -1,9 +1,12 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using CommandLine;
 using ValveKeyValue;
 
 namespace BudhudCompiler
 {
+	/// <summary>
+	/// Command-line options used by the CommandLineParser library.
+	/// </summary>
 	class Options
 	{
 		[Option(
@@ -38,6 +41,9 @@ namespace BudhudCompiler
 		public bool Silent { get; set; }
 	}
 
+	/// <summary>
+	/// Consumed by ValveKeyValue to handle loading of #base and #include files.
+	/// </summary>
 	class FileLoader : IIncludedFileLoader
 	{
 		string BasePath;
@@ -47,6 +53,9 @@ namespace BudhudCompiler
 		/// A list of #base or #include files that are missing, but at this time we don't know for sure if they are #base or #include directives. That gets figured out later.
 		/// </summary>
 		public List<string> MissingDirectiveFiles = new List<string>();
+		/// <summary>
+		/// A a dictionary of #base and #include directives discovered in every file that this loader processes. Keys are the full directive string, values are just the filename without quotes.
+		/// </summary>
 		public Dictionary<string, string> DiscoveredDirectives = new Dictionary<string, string>();
 
 		public FileLoader(string basePath, bool skipMissingFiles, bool silent)
@@ -67,6 +76,7 @@ namespace BudhudCompiler
 					Console.WriteLine($"Processing #base or #include: {resolvedPath}");
 				}
 
+				// Parse the file to add its directives to the DiscoveredDirectives dictionary.
 				var fullText = File.ReadAllText(resolvedPath);
 				var directives = Program.ListDirectives(fullText);
 				foreach (var directive in directives)
@@ -77,6 +87,7 @@ namespace BudhudCompiler
 					}
 				}
 
+				// Open the file and return the stream to VKV.
 				var stream = File.OpenRead(resolvedPath);
 				return stream;
 			}
@@ -97,10 +108,14 @@ namespace BudhudCompiler
 
 	class Program
 	{
+		/// <summary>
+		/// Used to extract all #base and #include directives from a file.
+		/// </summary>
 		static Regex directiveRx = new Regex(@"(^\s*(?:#base|#include).+)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 
 		static void Main(string[] args)
 		{
+			// Parse the command-line arguments and then do things with those parsed args.
 			Parser.Default.ParseArguments<Options>(args).WithParsed(options =>
 			{
 				if (!options.Silent)
@@ -160,6 +175,7 @@ namespace BudhudCompiler
 					}
 				}
 
+				// For a bit of pretty-printing, we add a newline after the directives, if any were left in the file.
 				if (addedMissingDirectiveToOutput)
 				{
 					output = String.Concat(output, "\n");
@@ -178,6 +194,9 @@ namespace BudhudCompiler
 			});
 		}
 
+		/// <summary>
+		/// Recursively stringifies (and pretty-prints) a Valve KVObject.
+		/// </summary>
 		static string StringifyKVObject(KVObject input, int indentationLevel = 0)
 		{
 			var result = GenerateTabs(indentationLevel);
@@ -209,6 +228,9 @@ namespace BudhudCompiler
 				&& type.GetInterface(nameof(IEnumerable<object>)) != null);
 		}
 
+		/// <summary>
+		/// Generates a string of tab characters.
+		/// </summary>
 		static string GenerateTabs(int num)
 		{
 			var result = "";
@@ -219,7 +241,7 @@ namespace BudhudCompiler
 			return result;
 		}
 
-		/// <returns>A map of all directives in the input string. Keys are the full directive statement, values are the file path only.</returns>
+		/// <returns>A map of all directives in the input string. Keys are the full directive statement, values are the file path only (without quotes).</returns>
 		public static Dictionary<string, string> ListDirectives(string input)
 		{
 			var output = new Dictionary<string, string>();
