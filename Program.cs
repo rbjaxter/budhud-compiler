@@ -74,43 +74,7 @@ namespace BudhudCompiler
 
 		Stream IIncludedFileLoader.OpenFile(string filePath)
 		{
-			string combinedPath = Path.Combine(History.Peek().dirName, filePath);
-			string resolvedPath = Path.GetFullPath(combinedPath);
-
-			do
-			{
-				combinedPath = Path.Combine(History.Peek().dirName, filePath);
-				resolvedPath = Path.GetFullPath(combinedPath);
-
-				if (History.Count == 1) // If we're back at the root file of the breadcrumb trail
-				{
-					if (!File.Exists(resolvedPath))
-					{
-						if (!Silent)
-						{
-							Console.WriteLine($"Skipping non-existent #base or #include: {resolvedPath}");
-						}
-
-						if (!this.SkipMissingFiles)
-						{
-							throw new FileNotFoundException("Resource not found.", filePath);
-						}
-
-						MissingDirectiveFiles.Add(filePath);
-						return Stream.Null;
-					}
-
-					break;
-				}
-
-				History.Pop();
-			}
-			while (!File.Exists(resolvedPath));
-
-			if (!Silent)
-			{
-				Console.WriteLine($"Processing #base or #include: {resolvedPath}");
-			}
+			string resolvedFilePath = "";
 
 			// Do all this bullshit.
 			var foundInLastFile = false;
@@ -119,7 +83,7 @@ namespace BudhudCompiler
 			{
 				var rx = new Regex(@"(^\s*(?:#base|#include)\s*""" + Regex.Escape(filePath) + @"\"")", RegexOptions.IgnoreCase | RegexOptions.Multiline);
 				var latestHistoryEntry = History.Peek();
-				var resolvedFilePath = Path.GetFullPath(Path.Combine(latestHistoryEntry.dirName, filePath));
+				resolvedFilePath = Path.GetFullPath(Path.Combine(latestHistoryEntry.dirName, filePath));
 				if (File.Exists(resolvedFilePath))
 				{
 					foundInLastFile = rx.IsMatch(latestHistoryEntry.contents);
@@ -145,8 +109,22 @@ namespace BudhudCompiler
 				}
 			}
 
+			if (String.IsNullOrEmpty(resolvedFilePath) || !File.Exists(resolvedFilePath))
+			{
+				if (!Silent)
+				{
+					Console.WriteLine($"Skipping non-existent #base or #include: {resolvedFilePath}");
+				}
+				return Stream.Null;
+			}
+
+			if (!Silent)
+			{
+				Console.WriteLine($"Processing #base or #include: {resolvedFilePath}");
+			}
+
 			// Parse the file to add its directives to the DiscoveredDirectives dictionary.
-			var fullText = File.ReadAllText(resolvedPath);
+			var fullText = File.ReadAllText(resolvedFilePath);
 			var directives = Program.ListDirectives(fullText);
 			foreach (var directive in directives)
 			{
@@ -157,7 +135,7 @@ namespace BudhudCompiler
 			}
 
 			// Open the file and return the stream to VKV.
-			var stream = File.OpenRead(resolvedPath);
+			var stream = File.OpenRead(resolvedFilePath);
 			return stream;
 		}
 
