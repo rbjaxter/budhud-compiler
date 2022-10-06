@@ -65,8 +65,8 @@ namespace BudhudCompiler
 			History.Push
 			(
 				(
-					dirName: GetDirectoryName(startingFile), 
-					filePath: startingFile, 
+					dirName: GetDirectoryName(startingFile),
+					filePath: startingFile,
 					contents: File.ReadAllText(startingFile)
 				)
 			);
@@ -74,75 +74,91 @@ namespace BudhudCompiler
 
 		Stream IIncludedFileLoader.OpenFile(string filePath)
 		{
-			var combinedPath = Path.Combine(History.Peek().dirName, filePath);
-			var resolvedPath = Path.GetFullPath(combinedPath);
-			if (File.Exists(resolvedPath))
+			string combinedPath = Path.Combine(History.Peek().dirName, filePath);
+			string resolvedPath = Path.GetFullPath(combinedPath);
+
+			do
 			{
-				if (!Silent)
-				{
-					Console.WriteLine($"Processing #base or #include: {resolvedPath}");
-				}
+				combinedPath = Path.Combine(History.Peek().dirName, filePath);
+				resolvedPath = Path.GetFullPath(combinedPath);
 
-				// Do all this bullshit.
-				var foundInLastFile = false;
-				var done = false;
-				while (!foundInLastFile && !done)
+				if (History.Count == 1) // If we're back at the root file of the breadcrumb trail
 				{
-					var rx = new Regex(@"(^\s*(?:#base|#include)\s*""" + Regex.Escape(filePath) + @"\"")", RegexOptions.IgnoreCase | RegexOptions.Multiline);
-					var latestHistoryEntry = History.Peek();
-					var resolvedFilePath = Path.GetFullPath(Path.Combine(latestHistoryEntry.dirName, filePath));
-					if (File.Exists(resolvedFilePath))
+					if (!File.Exists(resolvedPath))
 					{
-						foundInLastFile = rx.IsMatch(latestHistoryEntry.contents);
-						if (foundInLastFile)
+						if (!Silent)
 						{
-							History.Push
-							(
-								(
-									dirName: GetDirectoryName(resolvedFilePath),
-									filePath: resolvedFilePath,
-									contents: File.ReadAllText(resolvedFilePath)
-								)
-							);
+							Console.WriteLine($"Skipping non-existent #base or #include: {resolvedPath}");
 						}
-						else
+
+						if (!this.SkipMissingFiles)
 						{
-							History.Pop();
+							throw new FileNotFoundException("Resource not found.", filePath);
 						}
+
+						MissingDirectiveFiles.Add(filePath);
+						return Stream.Null;
 					}
-					else
-					{
-						done = true;
-					}
+
+					break;
 				}
 
-				// Parse the file to add its directives to the DiscoveredDirectives dictionary.
-				var fullText = File.ReadAllText(resolvedPath);
-				var directives = Program.ListDirectives(fullText);
-				foreach (var directive in directives)
-				{
-					if (!DiscoveredDirectives.ContainsKey(directive.Key))
-					{
-						DiscoveredDirectives.Add(directive.Key, directive.Value);
-					}
-				}
-
-				// Open the file and return the stream to VKV.
-				var stream = File.OpenRead(resolvedPath);
-				return stream;
+				History.Pop();
 			}
-			else if (!this.SkipMissingFiles)
-			{
-				throw new FileNotFoundException("Resource not found.", filePath);
-			}
+			while (!File.Exists(resolvedPath));
 
 			if (!Silent)
 			{
-				Console.WriteLine($"Skipping non-existent #base or #include: {resolvedPath}");
+				Console.WriteLine($"Processing #base or #include: {resolvedPath}");
 			}
 
-			MissingDirectiveFiles.Add(filePath);
-			return Stream.Null;
+			// Do all this bullshit.
+			var foundInLastFile = false;
+			var done = false;
+			while (!foundInLastFile && !done)
+			{
+				var rx = new Regex(@"(^\s*(?:#base|#include)\s*""" + Regex.Escape(filePath) + @"\"")", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+				var latestHistoryEntry = History.Peek();
+				var resolvedFilePath = Path.GetFullPath(Path.Combine(latestHistoryEntry.dirName, filePath));
+				if (File.Exists(resolvedFilePath))
+				{
+					foundInLastFile = rx.IsMatch(latestHistoryEntry.contents);
+					if (foundInLastFile)
+					{
+						History.Push
+						(
+							(
+								dirName: GetDirectoryName(resolvedFilePath),
+								filePath: resolvedFilePath,
+								contents: File.ReadAllText(resolvedFilePath)
+							)
+						);
+					}
+					else
+					{
+						History.Pop();
+					}
+				}
+				else
+				{
+					done = true;
+				}
+			}
+
+			// Parse the file to add its directives to the DiscoveredDirectives dictionary.
+			var fullText = File.ReadAllText(resolvedPath);
+			var directives = Program.ListDirectives(fullText);
+			foreach (var directive in directives)
+			{
+				if (!DiscoveredDirectives.ContainsKey(directive.Key))
+				{
+					DiscoveredDirectives.Add(directive.Key, directive.Value);
+				}
+			}
+
+			// Open the file and return the stream to VKV.
+			var stream = File.OpenRead(resolvedPath);
+			return stream;
 		}
 
 		string GetDirectoryName(string filePath)
