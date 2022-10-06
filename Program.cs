@@ -105,7 +105,14 @@ namespace BudhudCompiler
 				}
 				else
 				{
-					done = true;
+					if (History.Count > 1)
+					{
+						History.Pop();
+					}
+					else
+					{
+						done = true;
+					}
 				}
 			}
 
@@ -135,8 +142,7 @@ namespace BudhudCompiler
 			}
 
 			// Open the file and return the stream to VKV.
-			var stream = File.OpenRead(resolvedFilePath);
-			return stream;
+			return File.OpenRead(resolvedFilePath);
 		}
 
 		string GetDirectoryName(string filePath)
