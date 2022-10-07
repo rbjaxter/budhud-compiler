@@ -169,6 +169,8 @@ namespace BudhudCompiler
 		/// </summary>
 		static Regex directiveRx = new Regex(@"(^\s*(?:#base|#include).+)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s+{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+		static int TAB_SIZE = 4;
+		static int VALUE_COLUMN = 69;
 
 		static void Main(string[] args)
 		{
@@ -266,7 +268,16 @@ namespace BudhudCompiler
 			}
 			else
 			{
-				result = String.Concat(result, $"\"{input.Name}\"\t\"{input.Value}\"\n");
+				string nameWithQuotes = $"\"{input.Name}\"";
+				string valueWithQuotes = $"\"{input.Value}\"";
+				int column = indentationLevel * TAB_SIZE;
+				column += input.Name.Length;
+				string spacesToValue = " ";
+				if (column < VALUE_COLUMN)
+				{
+					spacesToValue = new string(' ', VALUE_COLUMN - column);
+				}
+				result = String.Concat(result, $"{nameWithQuotes}{spacesToValue}{valueWithQuotes}\n");
 			}
 
 			return result;
@@ -279,14 +290,14 @@ namespace BudhudCompiler
 		}
 
 		/// <summary>
-		/// Generates a string of tab characters.
+		/// Generates indentation as spaces.
 		/// </summary>
 		static string GenerateTabs(int num)
 		{
 			var result = "";
 			for (int i = 0; i < num; i++)
 			{
-				result = String.Concat(result, '\t');
+				result = String.Concat(result, new string(' ', TAB_SIZE));
 			}
 			return result;
 		}
