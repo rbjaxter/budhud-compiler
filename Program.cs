@@ -5,6 +5,12 @@ using ValveKeyValue;
 
 namespace BudhudCompiler
 {
+	enum DirectiveType
+	{
+		BASE,
+		INCLUDE
+	}
+
 	/// <summary>
 	/// Command-line options used by the CommandLineParser library.
 	/// </summary>
@@ -49,18 +55,20 @@ namespace BudhudCompiler
 	{
 		bool SkipMissingFiles;
 		bool Silent;
+		string StartingFile;
 		Stack<(string dirName, string filePath, string contents)> History = new Stack<(string dirName, string filePath, string contents)>();
 		/// <summary>
-		/// A list of #base or #include files that are missing, but at this time we don't know for sure if they are #base or #include directives. That gets figured out later.
+		/// A list of #base or #include files that are missing. Keys are paths relative to the starting file, values are a flag indiciating if the directive is a #base or an #include.
 		/// </summary>
-		public List<string> MissingDirectiveFiles = new List<string>();
+		public Dictionary<string, DirectiveType> MissingDirectiveFiles = new Dictionary<string, DirectiveType>();
 		/// <summary>
-		/// A a dictionary of #base and #include directives discovered in every file that this loader processes. Keys are the full directive string, values are just the filename without quotes.
+		/// A a dictionary of #base and #include directives discovered in every file that this loader processes. Keys are the full directive string. Values are a tuple containing filePath and type.
 		/// </summary>
-		public Dictionary<string, string> DiscoveredDirectives = new Dictionary<string, string>();
+		public Dictionary<string, (string filePath, DirectiveType type)> DiscoveredDirectives = new Dictionary<string, (string filePath, DirectiveType type)>();
 
 		public FileLoader(string startingFile, bool skipMissingFiles, bool silent)
 		{
+			StartingFile = startingFile;
 			SkipMissingFiles = skipMissingFiles;
 			Silent = silent;
 			History.Push
@@ -85,35 +93,43 @@ namespace BudhudCompiler
 				var rx = new Regex(@"(^\s*(?:#base|#include)\s*""" + Regex.Escape(filePath) + @"\"")", RegexOptions.IgnoreCase | RegexOptions.Multiline);
 				var latestHistoryEntry = History.Peek();
 				resolvedFilePath = Path.GetFullPath(Path.Combine(latestHistoryEntry.dirName, filePath));
-				if (File.Exists(resolvedFilePath))
+				foundInLastFile = rx.IsMatch(latestHistoryEntry.contents);
+				if (foundInLastFile)
 				{
-					foundInLastFile = rx.IsMatch(latestHistoryEntry.contents);
-					if (foundInLastFile)
+					if (File.Exists(resolvedFilePath))
 					{
+						var dirName = GetDirectoryName(resolvedFilePath);
+						var contents = File.ReadAllText(resolvedFilePath);
+						var contentsDirectives = Program.ListDirectives(contents);
+
+						foreach (var directive in contentsDirectives)
+						{
+							var resolvedDirectivePath = Path.Combine(dirName, directive.Value.filePath);
+							if (!File.Exists(resolvedDirectivePath))
+							{
+								var directivePathRelativeToStartingFile = Path.GetRelativePath(History.ElementAt(0).dirName, resolvedDirectivePath);
+								directivePathRelativeToStartingFile = directivePathRelativeToStartingFile.Replace("\\", "/");
+								MissingDirectiveFiles.Add(directivePathRelativeToStartingFile, Program.DirectiveStringToDirectiveType(directive.Key));
+							}
+						}
+
 						History.Push
 						(
 							(
-								dirName: GetDirectoryName(resolvedFilePath),
+								dirName,
 								filePath: resolvedFilePath,
-								contents: File.ReadAllText(resolvedFilePath)
+								contents
 							)
 						);
 					}
-					else
-					{
-						History.Pop();
-					}
+				}
+				else if (History.Count > 1)
+				{
+					History.Pop();
 				}
 				else
 				{
-					if (History.Count > 1)
-					{
-						History.Pop();
-					}
-					else
-					{
-						done = true;
-					}
+					done = true;
 				}
 			}
 
@@ -146,7 +162,7 @@ namespace BudhudCompiler
 			return Program.LowercasifyStream(File.OpenRead(resolvedFilePath));
 		}
 
-		string GetDirectoryName(string filePath)
+		public static string GetDirectoryName(string filePath)
 		{
 			var dirName = Path.GetDirectoryName(filePath);
 			if (dirName == null)
@@ -167,7 +183,7 @@ namespace BudhudCompiler
 		/// <summary>
 		/// Used to extract all #base and #include directives from a file.
 		/// </summary>
-		static Regex directiveRx = new Regex(@"(^\s*(?:#base|#include).+)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+		static Regex directiveRx = new Regex(@"(^\s*(?:#base|#include)\s*""(.+)"")", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s+{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		static int TAB_SIZE = 4;
 		static int VALUE_COLUMN = 69;
@@ -189,10 +205,11 @@ namespace BudhudCompiler
 					Console.WriteLine($"Entry point: {inputFilePath}");
 				}
 
+				var inputFileDir = FileLoader.GetDirectoryName(inputFilePath);
 				var output = "";
 				var fullText = File.ReadAllText(inputFilePath);
 				var allDirectives = ListDirectives(fullText);
-				var missingDirectiveFiles = new List<string>();
+				var missingDirectiveFiles = new Dictionary<string, (string filePath, DirectiveType type)>();
 				var inputStream = LowercasifyStream(File.OpenRead(inputFilePath));
 				var fileLoader = new FileLoader(inputFilePath, options.SkipMissingFiles, options.Silent);
 				var serializerOptions = new KVSerializerOptions
@@ -204,6 +221,16 @@ namespace BudhudCompiler
 				var kv = KVSerializer.Create(KVSerializationFormat.KeyValues1Text);
 				KVObject data = kv.Deserialize(inputStream, serializerOptions);
 
+				// Catalog missing directives in the input file.
+				foreach (var directive in allDirectives)
+				{
+					var directivePath = Path.Combine(inputFileDir, directive.Value.filePath);
+					if (!File.Exists(directivePath))
+					{
+						missingDirectiveFiles.Add(directive.Key, directive.Value);
+					}
+				}
+
 				// Catalog any directives that the file loader discovered, avoiding duplicates.
 				foreach (var directive in fileLoader.DiscoveredDirectives)
 				{
@@ -214,35 +241,23 @@ namespace BudhudCompiler
 				}
 				foreach (var missingFile in fileLoader.MissingDirectiveFiles)
 				{
-					if (!missingDirectiveFiles.Contains(missingFile))
+					var directive = DirectiveTypeToDirectiveString(missingFile.Value);
+					var newKey = directive + " \"" + missingFile.Key + "\"";
+					if (!missingDirectiveFiles.ContainsKey(missingFile.Key))
 					{
-						missingDirectiveFiles.Add(missingFile);
+						missingDirectiveFiles.Add(newKey, (filePath: missingFile.Key, type: missingFile.Value));
 					}
 				}
 
-				// Figure out which directives point to missing files and add those directives to the output.
-				var addedMissingDirectiveToOutput = false;
+				// Add missing directives to output.
 				foreach (var missingFile in missingDirectiveFiles)
 				{
-					foreach (var directive in allDirectives)
-					{
-						if (directive.Key.Contains(missingFile))
-						{
-							output = String.Concat(output, $"{directive.Key.Trim()}\n");
-							addedMissingDirectiveToOutput = true;
-						}
-					}
-				}
-
-				// For a bit of pretty-printing, we add a newline after the directives, if any were left in the file.
-				if (addedMissingDirectiveToOutput)
-				{
-					output = String.Concat(output, "\n");
+					output = String.Concat(output, $"{missingFile.Key.Trim()}\n");
 				}
 
 				output = String.Concat(output, StringifyKVObject(data));
 
-				if (options.Output != "")
+				if (!String.IsNullOrEmpty(options.Output))
 				{
 					File.WriteAllText(options.Output, output);
 				}
@@ -309,16 +324,17 @@ namespace BudhudCompiler
 			return result;
 		}
 
-		/// <returns>A map of all directives in the input string. Keys are the full directive statement, values are the file path only (without quotes).</returns>
-		public static Dictionary<string, string> ListDirectives(string input)
+		/// <returns>A map of all directives in the input string. Keys are the full directive statement, values are a tuple containing the filePath and the type.</returns>
+		public static Dictionary<string, (string filePath, DirectiveType type)> ListDirectives(string input)
 		{
-			var output = new Dictionary<string, string>();
+			var output = new Dictionary<string, (string filePath, DirectiveType type)>();
 			var directiveMatches = directiveRx.Matches(input);
 
 			foreach (Match match in directiveMatches)
 			{
 				var groups = match.Groups;
-				output.Add(groups[0].ToString(), groups[1].ToString());
+				var type = DirectiveStringToDirectiveType(groups[1].ToString());
+				output.Add(groups[1].ToString(), (filePath: groups[2].ToString(), type));
 			}
 
 			return output;
@@ -347,6 +363,44 @@ namespace BudhudCompiler
 			string inputStr = StreamToString(input);
 			string lowercasedStr = objectKeyRx.Replace(inputStr, m => m.Groups[1].Value + m.Groups[2].Value.ToLowerInvariant() + m.Groups[3].Value);
 			return StringToStream(lowercasedStr);
+		}
+
+		public static string DirectiveTypeToDirectiveString(DirectiveType input)
+		{
+			string directive;
+			if (input == DirectiveType.BASE)
+			{
+				directive = "#base";
+			}
+			else if (input == DirectiveType.INCLUDE)
+			{
+				directive = "#include";
+			}
+			else
+			{
+				throw new InvalidDataException("Invalid directive type: " + input);
+			}
+			return directive;
+		}
+
+		public static DirectiveType DirectiveStringToDirectiveType(string input)
+		{
+			DirectiveType type;
+
+			if (Regex.IsMatch(input, @"\s*#base\s*"""))
+			{
+				type = DirectiveType.BASE;
+			}
+			else if (Regex.IsMatch(input, @"\s*#include\s*"""))
+			{
+				type = DirectiveType.INCLUDE;
+			}
+			else
+			{
+				throw new InvalidDataException("Encountered a directiive of an unknown type: " + input);
+			}
+
+			return type;
 		}
 	}
 }
