@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+using System.Text;
+using System.Text.RegularExpressions;
 using CommandLine;
 using ValveKeyValue;
 
@@ -142,7 +143,7 @@ namespace BudhudCompiler
 			}
 
 			// Open the file and return the stream to VKV.
-			return File.OpenRead(resolvedFilePath);
+			return Program.LowercasifyStream(File.OpenRead(resolvedFilePath));
 		}
 
 		string GetDirectoryName(string filePath)
@@ -167,6 +168,7 @@ namespace BudhudCompiler
 		/// Used to extract all #base and #include directives from a file.
 		/// </summary>
 		static Regex directiveRx = new Regex(@"(^\s*(?:#base|#include).+)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s+{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 
 		static void Main(string[] args)
 		{
@@ -182,7 +184,7 @@ namespace BudhudCompiler
 				var fullText = File.ReadAllText(options.Input);
 				var allDirectives = ListDirectives(fullText);
 				var missingDirectiveFiles = new List<string>();
-				var inputStream = File.OpenRead(options.Input);
+				var inputStream = LowercasifyStream(File.OpenRead(options.Input));
 				var fileLoader = new FileLoader(options.Input, options.SkipMissingFiles, options.Silent);
 				var serializerOptions = new KVSerializerOptions
 				{
@@ -302,6 +304,31 @@ namespace BudhudCompiler
 			}
 
 			return output;
+		}
+
+		static Stream StringToStream(string input)
+		{
+			byte[] byteArray = Encoding.UTF8.GetBytes(input);
+			return new MemoryStream(byteArray);
+		}
+
+		static String StreamToString(Stream input)
+		{
+			StreamReader reader = new StreamReader(input);
+			return reader.ReadToEnd();
+		}
+
+		/// <summary>
+		/// So it turns out that Valve's KV implementation is case-insensitive, but VKV is case-sensitive.
+		/// This resulted in scenarios where things like "NumberBG" and "NumberBg" would collide in budhud's compiled output.
+		/// To resolve this, we just mangle everything to lowercase.
+		/// </summary>
+		// <returns>A stream that is the same as the input stream but with all characters lowercase.</returns>
+		public static Stream LowercasifyStream(Stream input)
+		{
+			string inputStr = StreamToString(input);
+			string lowercasedStr = objectKeyRx.Replace(inputStr, m => m.Groups[1].Value + m.Groups[2].Value.ToLowerInvariant() + m.Groups[3].Value);
+			return StringToStream(lowercasedStr);
 		}
 	}
 }
