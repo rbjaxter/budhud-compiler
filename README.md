@@ -27,6 +27,10 @@
 	```
 3. Run the program with the desired options.
 
+## Compliance
+
+This program currently uses a modified version of [ValveKeyValue](https://github.com/SteamDatabase/ValveKeyValue). You can view the source code here: https://github.com/alvancamp/ValveKeyValue/tree/dev
+
 ## License
 
 MIT
