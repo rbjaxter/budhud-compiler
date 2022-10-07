@@ -255,7 +255,7 @@ namespace BudhudCompiler
 
 			if (IsEnumerableType(input.Value.GetType()))
 			{
-				result = String.Concat(result, $"\"{input.Name}\"\n");
+				result = String.Concat('\n' + result, $"\"{input.Name}\"\n");
 				result = String.Concat(result, GenerateTabs(indentationLevel));
 				result = String.Concat(result, "{\n");
 				foreach (KVObject item in input)
@@ -264,7 +264,7 @@ namespace BudhudCompiler
 					result = String.Concat(result, subResult);
 				}
 				result = String.Concat(result, GenerateTabs(indentationLevel));
-				result = String.Concat(result, "}\n\n");
+				result = String.Concat(result, "}\n");
 			}
 			else
 			{
