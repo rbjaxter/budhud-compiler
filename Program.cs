@@ -319,11 +319,11 @@ namespace BudhudCompiler
 		}
 
 		/// <summary>
-		/// So it turns out that Valve's KV implementation is case-insensitive, but VKV is case-sensitive.
+		/// So it turns out that Valve's KV implementation is case-insensitive on object keys, but VKV is case-sensitive.
 		/// This resulted in scenarios where things like "NumberBG" and "NumberBg" would collide in budhud's compiled output.
-		/// To resolve this, we just mangle everything to lowercase.
+		/// To resolve this, we just convert all object keys to lowercase.
 		/// </summary>
-		// <returns>A stream that is the same as the input stream but with all characters lowercase.</returns>
+		/// <returns>A stream that is the same as the input stream but with all characters lowercase.</returns>
 		public static Stream LowercasifyStream(Stream input)
 		{
 			string inputStr = StreamToString(input);
