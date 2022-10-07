@@ -177,17 +177,24 @@ namespace BudhudCompiler
 			// Parse the command-line arguments and then do things with those parsed args.
 			Parser.Default.ParseArguments<Options>(args).WithParsed(options =>
 			{
+				// If the input doesn't point to a fully qualified path, make it do so.
+				var inputFilePath = options.Input;
+				if (!Path.IsPathFullyQualified(inputFilePath))
+				{
+					inputFilePath = Path.Combine(Directory.GetCurrentDirectory(), inputFilePath);
+				}
+
 				if (!options.Silent)
 				{
-					Console.WriteLine($"Entry point: {options.Input}");
+					Console.WriteLine($"Entry point: {inputFilePath}");
 				}
 
 				var output = "";
-				var fullText = File.ReadAllText(options.Input);
+				var fullText = File.ReadAllText(inputFilePath);
 				var allDirectives = ListDirectives(fullText);
 				var missingDirectiveFiles = new List<string>();
-				var inputStream = LowercasifyStream(File.OpenRead(options.Input));
-				var fileLoader = new FileLoader(options.Input, options.SkipMissingFiles, options.Silent);
+				var inputStream = LowercasifyStream(File.OpenRead(inputFilePath));
+				var fileLoader = new FileLoader(inputFilePath, options.SkipMissingFiles, options.Silent);
 				var serializerOptions = new KVSerializerOptions
 				{
 					FileLoader = fileLoader,
