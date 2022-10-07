@@ -10,8 +10,8 @@
 	- At this time, only Windows builds are provided. If you need builds for other platforms, consider building the program from source.
 2. View the auto-generated help docs with `budhud-compiler.exe --help`:
 	```
-	budhud-compiler 1.0.0
-	Copyright (C) 2022 budhud-compiler
+	budhud-compiler 1.1.0
+	Copyright (C) 2022 Alex Van Camp
 
 	-i, --input               Required. The specific file to compile.
 
