@@ -9,6 +9,8 @@
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishReadyToRun>true</PublishReadyToRun>
+    <Version>1.1.0</Version>
+    <Company>Alex Van Camp</Company>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="ValveKeyValue">
