@@ -388,7 +388,6 @@ namespace BudhudCompiler
 		public static DirectiveType DirectiveStringToDirectiveType(string input)
 		{
 			DirectiveType type;
-
 			if (Regex.IsMatch(input, @"\s*#base\s*"""))
 			{
 				type = DirectiveType.BASE;
@@ -399,9 +398,8 @@ namespace BudhudCompiler
 			}
 			else
 			{
-				throw new InvalidDataException("Encountered a directiive of an unknown type: " + input);
+				throw new InvalidDataException("Encountered a directive of an unknown type: " + input);
 			}
-
 			return type;
 		}
 	}
