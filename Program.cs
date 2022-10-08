@@ -51,7 +51,7 @@ namespace BudhudCompiler
 
 
 		[Option(
-			'o',
+			'm',
 			"omitMissingDirectives",
 			Required = false,
 			Default = false,
