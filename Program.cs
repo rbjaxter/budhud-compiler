@@ -70,15 +70,15 @@ namespace BudhudCompiler
 		/// <summary>
 		/// A trail of breadcrumbs that tells us how far into a chain of directives we are. The first entry is the starting file. This is used to resolve relative directive paths into absolute paths via a heuristic.
 		/// </summary>
-		HistoryStack History = new Stack<(string dirName, string filePath, string contents)>();
+		HistoryStack History = new HistoryStack();
 		/// <summary>
 		/// A list of #base or #include files that are missing. Keys are paths relative to the starting file, values are a flag indiciating if the directive is a #base or an #include.
 		/// </summary>
-		public DirectiveDict MissingDirectiveFiles = new Dictionary<string, DirectiveType>();
+		public DirectiveDict MissingDirectiveFiles = new DirectiveDict();
 		/// <summary>
 		/// A a dictionary of #base and #include directives discovered in every file that this loader processes. Keys are file path, values are directive type.
 		/// </summary>
-		public DirectiveDict DiscoveredDirectives = new Dictionary<string, DirectiveType>();
+		public DirectiveDict DiscoveredDirectives = new DirectiveDict();
 
 		public FileLoader(string startingFilePath, bool errorOnMissing, bool silent)
 		{
@@ -228,7 +228,7 @@ namespace BudhudCompiler
 				var output = "";
 				var fullText = File.ReadAllText(inputFilePath);
 				var allDirectives = ListDirectives(fullText);
-				DirectiveDict missingDirectiveFiles = new Dictionary<string, DirectiveType>();
+				DirectiveDict missingDirectiveFiles = new DirectiveDict();
 				var inputStream = LowercasifyStream(File.OpenRead(inputFilePath));
 				var fileLoader = new FileLoader(inputFilePath, options.ErrorOnMissing, options.Silent);
 				var serializerOptions = new KVSerializerOptions
@@ -349,7 +349,7 @@ namespace BudhudCompiler
 		/// <returns>A map of all directives in the input string. Keys are the full directive statement, values are a tuple containing the filePath and the type.</returns>
 		public static DirectiveDict ListDirectives(string input)
 		{
-			DirectiveDict output = new Dictionary<string, DirectiveType>();
+			DirectiveDict output = new DirectiveDict();
 			var directiveMatches = directiveRx.Matches(input);
 
 			foreach (Match match in directiveMatches)
