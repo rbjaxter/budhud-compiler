@@ -21,7 +21,7 @@
 
 	-s, --silent                   (Default: false) If true, no information will be output to the console (aside from the finalized output if no output file is specified).
 
-	-o, --omitMissingDirectives    (Default: false) If false, directives which point to files that don't exist will be omitted from the final output.
+	-o, --omitMissingDirectives    (Default: false) If true, directives which point to files that don't exist will be omitted from the final output.
 
 	--help                         Display this help screen.
 

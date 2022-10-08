@@ -55,7 +55,7 @@ namespace BudhudCompiler
 			"omitMissingDirectives",
 			Required = false,
 			Default = false,
-			HelpText = "If false, directives which point to files that don't exist will be omitted from the final output.")]
+			HelpText = "If true, directives which point to files that don't exist will be omitted from the final output.")]
 		public bool OmitMissingDirectives { get; set; }
 	}
 
