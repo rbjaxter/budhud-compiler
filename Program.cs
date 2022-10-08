@@ -5,6 +5,8 @@ using ValveKeyValue;
 
 namespace BudhudCompiler
 {
+	using DirectiveDict = Dictionary<string, (string filePath, DirectiveType type)>;
+	using HistoryStack = Stack<(string dirName, string filePath, string contents)>;
 	enum DirectiveType
 	{
 		BASE,
@@ -56,7 +58,7 @@ namespace BudhudCompiler
 		bool SkipMissingFiles;
 		bool Silent;
 		string StartingFile;
-		Stack<(string dirName, string filePath, string contents)> History = new Stack<(string dirName, string filePath, string contents)>();
+		HistoryStack History = new Stack<(string dirName, string filePath, string contents)>();
 		/// <summary>
 		/// A list of #base or #include files that are missing. Keys are paths relative to the starting file, values are a flag indiciating if the directive is a #base or an #include.
 		/// </summary>
@@ -64,7 +66,7 @@ namespace BudhudCompiler
 		/// <summary>
 		/// A a dictionary of #base and #include directives discovered in every file that this loader processes. Keys are the full directive string. Values are a tuple containing filePath and type.
 		/// </summary>
-		public Dictionary<string, (string filePath, DirectiveType type)> DiscoveredDirectives = new Dictionary<string, (string filePath, DirectiveType type)>();
+		public DirectiveDict DiscoveredDirectives = new Dictionary<string, (string filePath, DirectiveType type)>();
 
 		public FileLoader(string startingFile, bool skipMissingFiles, bool silent)
 		{
@@ -209,7 +211,7 @@ namespace BudhudCompiler
 				var output = "";
 				var fullText = File.ReadAllText(inputFilePath);
 				var allDirectives = ListDirectives(fullText);
-				var missingDirectiveFiles = new Dictionary<string, (string filePath, DirectiveType type)>();
+				DirectiveDict missingDirectiveFiles = new Dictionary<string, (string filePath, DirectiveType type)>();
 				var inputStream = LowercasifyStream(File.OpenRead(inputFilePath));
 				var fileLoader = new FileLoader(inputFilePath, options.SkipMissingFiles, options.Silent);
 				var serializerOptions = new KVSerializerOptions
@@ -325,9 +327,9 @@ namespace BudhudCompiler
 		}
 
 		/// <returns>A map of all directives in the input string. Keys are the full directive statement, values are a tuple containing the filePath and the type.</returns>
-		public static Dictionary<string, (string filePath, DirectiveType type)> ListDirectives(string input)
+		public static DirectiveDict ListDirectives(string input)
 		{
-			var output = new Dictionary<string, (string filePath, DirectiveType type)>();
+			DirectiveDict output = new Dictionary<string, (string filePath, DirectiveType type)>();
 			var directiveMatches = directiveRx.Matches(input);
 
 			foreach (Match match in directiveMatches)
