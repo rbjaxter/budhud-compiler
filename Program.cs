@@ -66,7 +66,10 @@ namespace BudhudCompiler
 	{
 		bool SkipMissingFiles;
 		bool Silent;
-		string StartingFile;
+		string StartingFilePath;
+		/// <summary>
+		/// A trail of breadcrumbs that tells us how far into a chain of directives we are. The first entry is the starting file. This is used to resolve relative directive paths into absolute paths via a heuristic.
+		/// </summary>
 		HistoryStack History = new Stack<(string dirName, string filePath, string contents)>();
 		/// <summary>
 		/// A list of #base or #include files that are missing. Keys are paths relative to the starting file, values are a flag indiciating if the directive is a #base or an #include.
@@ -77,17 +80,17 @@ namespace BudhudCompiler
 		/// </summary>
 		public DirectiveDict DiscoveredDirectives = new Dictionary<string, DirectiveType>();
 
-		public FileLoader(string startingFile, bool errorOnMissing, bool silent)
+		public FileLoader(string startingFilePath, bool errorOnMissing, bool silent)
 		{
-			StartingFile = startingFile;
+			StartingFilePath = startingFilePath;
 			SkipMissingFiles = !errorOnMissing;
 			Silent = silent;
 			History.Push
 			(
 				(
-					dirName: GetDirectoryName(startingFile),
-					filePath: startingFile,
-					contents: File.ReadAllText(startingFile)
+					dirName: GetDirectoryName(startingFilePath),
+					filePath: startingFilePath,
+					contents: File.ReadAllText(startingFilePath)
 				)
 			);
 		}
@@ -96,7 +99,9 @@ namespace BudhudCompiler
 		{
 			string resolvedFilePath = "";
 
-			// Do all this bullshit.
+			// Use the History stack to figure out which file we are currently in
+			// and then use that information to resolve this directive's relative path
+			// into an absolute one.
 			var foundInLastFile = false;
 			var done = false;
 			while (!foundInLastFile && !done)
@@ -195,6 +200,9 @@ namespace BudhudCompiler
 		/// Used to extract all #base and #include directives from a file.
 		/// </summary>
 		static Regex directiveRx = new Regex(@"(^\s*(?:#base|#include)\s*""(.+)"")", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+		/// <summary>
+		/// Used extract keys whose values are objects. Supports keys with conditionals after them.
+		/// </summary>
 		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s+(?:\[.+\])*\s+{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		static int TAB_SIZE = 4;
 		static int VALUE_COLUMN = 68;
@@ -204,7 +212,7 @@ namespace BudhudCompiler
 			// Parse the command-line arguments and then do things with those parsed args.
 			Parser.Default.ParseArguments<Options>(args).WithParsed(options =>
 			{
-				// If the input doesn't point to a fully qualified path, make it do so.
+				// If the input doesn't point to a fully qualified (aka absolute) path, make it do so.
 				var inputFilePath = options.Input;
 				if (!Path.IsPathFullyQualified(inputFilePath))
 				{
