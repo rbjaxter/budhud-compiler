@@ -5,7 +5,7 @@ using ValveKeyValue;
 
 namespace BudhudCompiler
 {
-	using DirectiveDict = Dictionary<string, (string filePath, DirectiveType type)>;
+	using DirectiveDict = Dictionary<string, DirectiveType>;
 	using HistoryStack = Stack<(string dirName, string filePath, string contents)>;
 	enum DirectiveType
 	{
@@ -62,11 +62,11 @@ namespace BudhudCompiler
 		/// <summary>
 		/// A list of #base or #include files that are missing. Keys are paths relative to the starting file, values are a flag indiciating if the directive is a #base or an #include.
 		/// </summary>
-		public Dictionary<string, DirectiveType> MissingDirectiveFiles = new Dictionary<string, DirectiveType>();
+		public DirectiveDict MissingDirectiveFiles = new Dictionary<string, DirectiveType>();
 		/// <summary>
-		/// A a dictionary of #base and #include directives discovered in every file that this loader processes. Keys are the full directive string. Values are a tuple containing filePath and type.
+		/// A a dictionary of #base and #include directives discovered in every file that this loader processes. Keys are file path, values are directive type.
 		/// </summary>
-		public DirectiveDict DiscoveredDirectives = new Dictionary<string, (string filePath, DirectiveType type)>();
+		public DirectiveDict DiscoveredDirectives = new Dictionary<string, DirectiveType>();
 
 		public FileLoader(string startingFile, bool skipMissingFiles, bool silent)
 		{
@@ -106,12 +106,12 @@ namespace BudhudCompiler
 
 						foreach (var directive in contentsDirectives)
 						{
-							var resolvedDirectivePath = Path.Combine(dirName, directive.Value.filePath);
+							var resolvedDirectivePath = Path.Combine(dirName, directive.Key);
 							if (!File.Exists(resolvedDirectivePath))
 							{
 								var directivePathRelativeToStartingFile = Path.GetRelativePath(History.ElementAt(0).dirName, resolvedDirectivePath);
 								directivePathRelativeToStartingFile = directivePathRelativeToStartingFile.Replace("\\", "/");
-								MissingDirectiveFiles.Add(directivePathRelativeToStartingFile, Program.DirectiveStringToDirectiveType(directive.Key));
+								MissingDirectiveFiles.Add(directivePathRelativeToStartingFile, directive.Value);
 							}
 						}
 
@@ -211,7 +211,7 @@ namespace BudhudCompiler
 				var output = "";
 				var fullText = File.ReadAllText(inputFilePath);
 				var allDirectives = ListDirectives(fullText);
-				DirectiveDict missingDirectiveFiles = new Dictionary<string, (string filePath, DirectiveType type)>();
+				DirectiveDict missingDirectiveFiles = new Dictionary<string, DirectiveType>();
 				var inputStream = LowercasifyStream(File.OpenRead(inputFilePath));
 				var fileLoader = new FileLoader(inputFilePath, options.SkipMissingFiles, options.Silent);
 				var serializerOptions = new KVSerializerOptions
@@ -226,7 +226,7 @@ namespace BudhudCompiler
 				// Catalog missing directives in the input file.
 				foreach (var directive in allDirectives)
 				{
-					var directivePath = Path.Combine(inputFileDir, directive.Value.filePath);
+					var directivePath = Path.Combine(inputFileDir, directive.Key);
 					if (!File.Exists(directivePath))
 					{
 						missingDirectiveFiles.Add(directive.Key, directive.Value);
@@ -243,18 +243,18 @@ namespace BudhudCompiler
 				}
 				foreach (var missingFile in fileLoader.MissingDirectiveFiles)
 				{
-					var directive = DirectiveTypeToDirectiveString(missingFile.Value);
-					var newKey = directive + " \"" + missingFile.Key + "\"";
 					if (!missingDirectiveFiles.ContainsKey(missingFile.Key))
 					{
-						missingDirectiveFiles.Add(newKey, (filePath: missingFile.Key, type: missingFile.Value));
+						missingDirectiveFiles.Add(missingFile.Key, missingFile.Value);
 					}
 				}
 
 				// Add missing directives to output.
 				foreach (var missingFile in missingDirectiveFiles)
 				{
-					output = String.Concat(output, $"{missingFile.Key.Trim()}\n");
+					var directive = DirectiveTypeToDirectiveString(missingFile.Value);
+					var newKey = directive + " \"" + missingFile.Key + "\"";
+					output = String.Concat(output, $"{newKey}\n");
 				}
 
 				output = String.Concat(output, StringifyKVObject(data));
@@ -329,14 +329,14 @@ namespace BudhudCompiler
 		/// <returns>A map of all directives in the input string. Keys are the full directive statement, values are a tuple containing the filePath and the type.</returns>
 		public static DirectiveDict ListDirectives(string input)
 		{
-			DirectiveDict output = new Dictionary<string, (string filePath, DirectiveType type)>();
+			DirectiveDict output = new Dictionary<string, DirectiveType>();
 			var directiveMatches = directiveRx.Matches(input);
 
 			foreach (Match match in directiveMatches)
 			{
 				var groups = match.Groups;
 				var type = DirectiveStringToDirectiveType(groups[1].ToString());
-				output.Add(groups[1].ToString(), (filePath: groups[2].ToString(), type));
+				output.Add(groups[2].ToString(), type);
 			}
 
 			return output;
