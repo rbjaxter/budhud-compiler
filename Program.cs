@@ -34,12 +34,12 @@ namespace BudhudCompiler
 		public string Output { get; set; } = "";
 
 		[Option(
-			'm',
-			"skipMissingFiles",
+			'e',
+			"errorOnMissing",
 			Required = false,
-			Default = true,
-			HelpText = "If false, throws an error when a #base or #include file isn't present on disk.")]
-		public bool SkipMissingFiles { get; set; }
+			Default = false,
+			HelpText = "If true, throws an error when a #base or #include file isn't present on disk.")]
+		public bool ErrorOnMissing { get; set; }
 
 		[Option(
 			's',
@@ -51,12 +51,12 @@ namespace BudhudCompiler
 
 
 		[Option(
-			'r',
-			"retainMissingDirectives",
+			'o',
+			"omitMissingDirectives",
 			Required = false,
-			Default = true,
-			HelpText = "If true, directives which point to files that don't exist will be preserved in the final output.")]
-		public bool RetainMissingDirectives { get; set; }
+			Default = false,
+			HelpText = "If false, directives which point to files that don't exist will be omitted from the final output.")]
+		public bool OmitMissingDirectives { get; set; }
 	}
 
 	/// <summary>
@@ -77,10 +77,10 @@ namespace BudhudCompiler
 		/// </summary>
 		public DirectiveDict DiscoveredDirectives = new Dictionary<string, DirectiveType>();
 
-		public FileLoader(string startingFile, bool skipMissingFiles, bool silent)
+		public FileLoader(string startingFile, bool errorOnMissing, bool silent)
 		{
 			StartingFile = startingFile;
-			SkipMissingFiles = skipMissingFiles;
+			SkipMissingFiles = !errorOnMissing;
 			Silent = silent;
 			History.Push
 			(
@@ -222,7 +222,7 @@ namespace BudhudCompiler
 				var allDirectives = ListDirectives(fullText);
 				DirectiveDict missingDirectiveFiles = new Dictionary<string, DirectiveType>();
 				var inputStream = LowercasifyStream(File.OpenRead(inputFilePath));
-				var fileLoader = new FileLoader(inputFilePath, options.SkipMissingFiles, options.Silent);
+				var fileLoader = new FileLoader(inputFilePath, options.ErrorOnMissing, options.Silent);
 				var serializerOptions = new KVSerializerOptions
 				{
 					FileLoader = fileLoader,
@@ -258,7 +258,7 @@ namespace BudhudCompiler
 					}
 				}
 
-				if (options.RetainMissingDirectives)
+				if (!options.OmitMissingDirectives)
 				{
 					// Add missing directives to output.
 					foreach (var missingFile in missingDirectiveFiles)
