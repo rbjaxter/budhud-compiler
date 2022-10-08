@@ -48,6 +48,15 @@ namespace BudhudCompiler
 			Default = false,
 			HelpText = "If true, no information will be output to the console (aside from the finalized output if no output file is specified).")]
 		public bool Silent { get; set; }
+
+
+		[Option(
+			'r',
+			"retainMissingDirectives",
+			Required = false,
+			Default = true,
+			HelpText = "If true, directives which point to files that don't exist will be preserved in the final output.")]
+		public bool RetainMissingDirectives { get; set; }
 	}
 
 	/// <summary>
@@ -249,12 +258,15 @@ namespace BudhudCompiler
 					}
 				}
 
-				// Add missing directives to output.
-				foreach (var missingFile in missingDirectiveFiles)
+				if (options.RetainMissingDirectives)
 				{
-					var directive = DirectiveTypeToDirectiveString(missingFile.Value);
-					var newKey = directive + " \"" + missingFile.Key + "\"";
-					output = String.Concat(output, $"{newKey}\n");
+					// Add missing directives to output.
+					foreach (var missingFile in missingDirectiveFiles)
+					{
+						var directive = DirectiveTypeToDirectiveString(missingFile.Value);
+						var newKey = directive + " \"" + missingFile.Key + "\"";
+						output = String.Concat(output, $"{newKey}\n");
+					}
 				}
 
 				output = String.Concat(output, StringifyKVObject(data));
