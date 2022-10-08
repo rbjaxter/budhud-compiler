@@ -6,7 +6,7 @@
 
 > 💡 This tool currently only takes a single file as input. If you need to compile multiple files, consider writing a shell script that iterates over them and invokes `budhud-compiler` on each of them.
 
-1. Grab the [latest release](https://github.com/alvancamp/budhud-compiler/releases).
+1. Grab the [latest release](https://github.com/alvancamp/budhud-compiler/releases/latest).
 	- At this time, only Windows builds are provided. If you need builds for other platforms, consider building the program from source.
 2. View the auto-generated help docs with `budhud-compiler.exe --help`:
 	```
