@@ -197,7 +197,7 @@ namespace BudhudCompiler
 		static Regex directiveRx = new Regex(@"(^\s*(?:#base|#include)\s*""(.+)"")", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s+(?:\[.+\])*\s+{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		static int TAB_SIZE = 4;
-		static int VALUE_COLUMN = 69;
+		static int VALUE_COLUMN = 68;
 
 		static void Main(string[] args)
 		{
@@ -307,7 +307,7 @@ namespace BudhudCompiler
 				string nameWithQuotes = $"\"{input.Name}\"";
 				string valueWithQuotes = $"\"{input.Value}\"";
 				int column = indentationLevel * TAB_SIZE;
-				column += input.Name.Length;
+				column += nameWithQuotes.Length;
 				string spacesToValue = " ";
 				if (column < VALUE_COLUMN)
 				{
