@@ -186,7 +186,7 @@ namespace BudhudCompiler
 		/// Used to extract all #base and #include directives from a file.
 		/// </summary>
 		static Regex directiveRx = new Regex(@"(^\s*(?:#base|#include)\s*""(.+)"")", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
-		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s+{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s+(?:\[.+\])*\s+{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		static int TAB_SIZE = 4;
 		static int VALUE_COLUMN = 69;
 
