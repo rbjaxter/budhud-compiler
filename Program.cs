@@ -273,7 +273,7 @@ namespace BudhudCompiler
 					watcher.Error += (object sender, ErrorEventArgs e) => throw e.GetException();
 					watcher.EnableRaisingEvents = true;
 					watchers.Add(watcher); // Prevent garbage collection
-					Console.WriteLine($"Initial compilation complete, watching {input} for changes (will output to {output})...");
+					Console.WriteLine($"Initial compilation complete, watching \"{input}\" for changes (will output to \"{output}\")...");
 				}
 			}
 
@@ -300,7 +300,7 @@ namespace BudhudCompiler
 						await Task.Delay(100, source.Token);
 						CompileOrCopyFiles(new List<string> { filePath }, input, output, options);
 						PathsAwaitingProcessing.Remove(filePath);
-						Console.WriteLine($"{operation} | {(ShouldCompile(filePath) ? "Compiled" : "Copied")} {filePath} to {ComputeOutputPath(filePath, input, output)}");
+						Console.WriteLine($"{operation} | {(ShouldCompile(filePath) ? "Compiled" : "Copied")} \"{filePath}\" to \"{ComputeOutputPath(filePath, input, output)}\"");
 					});
 			PathsAwaitingProcessing.Add(filePath, source);
 		}
