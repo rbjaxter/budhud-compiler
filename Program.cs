@@ -57,6 +57,14 @@ namespace BudhudCompiler
 			Default = false,
 			HelpText = "If true, directives which point to files that don't exist will be omitted from the final output.")]
 		public bool OmitMissingDirectives { get; set; }
+
+		[Option(
+			'w',
+			"watch",
+			Required = false,
+			Default = false,
+			HelpText = "If true, the input file or directory will be watched for changes and automatically recompiled to the specified output path.")]
+		public bool Watch { get; set; }
 	}
 
 	/// <summary>
@@ -175,7 +183,7 @@ namespace BudhudCompiler
 			}
 
 			// Open the file and return the stream to VKV.
-			return Program.LowercasifyStream(File.OpenRead(resolvedFilePath));
+			return Program.LowercasifyStream(File.ReadAllText(resolvedFilePath));
 		}
 
 		public static string GetDirectoryName(string filePath)
@@ -206,30 +214,135 @@ namespace BudhudCompiler
 		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s+(?:\[.+\])*\s+{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		static int TAB_SIZE = 4;
 		static int VALUE_COLUMN = 68;
+		static Dictionary<string, CancellationTokenSource> PathsAwaitingProcessing = new Dictionary<string, CancellationTokenSource>();
 
 		static void Main(string[] args)
 		{
 			var options = Parser.Default.ParseArguments<Options>(args).Value;
-			var inputIsDir = false;
-			var outputToConsole = String.IsNullOrEmpty(options.Output);
+			var inputIsDir = InputIsDir(options);
 
+			CompileOrCopyFiles(EnumerateInputFiles(options), options);
+
+			if (options.Watch)
+			{
+				var dirToWatch = inputIsDir ? options.Input : Path.GetDirectoryName(options.Input);
+				if (String.IsNullOrEmpty(dirToWatch))
+				{
+					throw new InvalidDataException($"Could not extract directory name from {options.Input}");
+				}
+
+				using var watcher = new FileSystemWatcher(dirToWatch);
+				watcher.NotifyFilter = NotifyFilters.DirectoryName
+								 | NotifyFilters.FileName
+								 | NotifyFilters.LastWrite;
+
+				if (!inputIsDir)
+				{
+					watcher.Filter = Path.GetFileName(options.Input);
+				}
+
+				watcher.Changed += (object sender, FileSystemEventArgs e) =>
+				{
+					// Cancel the existing task if it exists.
+					PathsAwaitingProcessing.TryGetValue(e.FullPath, out CancellationTokenSource? existingCancellationToken);
+					if (existingCancellationToken != null)
+					{
+						existingCancellationToken.Cancel();
+						PathsAwaitingProcessing.Remove(e.FullPath);
+					}
+
+					// Create a new task
+					CancellationTokenSource source = new CancellationTokenSource();
+					var t = Task.Run(async delegate
+							{
+								await Task.Delay(100, source.Token);
+								CompileOrCopyFiles(new List<string> { e.FullPath }, options);
+								PathsAwaitingProcessing.Remove(e.FullPath);
+								Console.WriteLine($"CHANGED | {(ShouldCompile(e.FullPath) ? "Compiled" : "Copied")} {e.FullPath} to {ComputeOutputPath(e.FullPath, options)}");
+							});
+					PathsAwaitingProcessing.Add(e.FullPath, source);
+				};
+				watcher.Created += (object sender, FileSystemEventArgs e) =>
+				{
+					// Cancel the existing task if it exists.
+					PathsAwaitingProcessing.TryGetValue(e.FullPath, out CancellationTokenSource? existingCancellationToken);
+					if (existingCancellationToken != null)
+					{
+						existingCancellationToken.Cancel();
+						PathsAwaitingProcessing.Remove(e.FullPath);
+					}
+
+					// Create a new task
+					CancellationTokenSource source = new CancellationTokenSource();
+					var t = Task.Run(async delegate
+							{
+								await Task.Delay(100, source.Token);
+								CompileOrCopyFiles(new List<string> { e.FullPath }, options);
+								PathsAwaitingProcessing.Remove(e.FullPath);
+								Console.WriteLine($"CREATED | {(ShouldCompile(e.FullPath) ? "Compiled" : "Copied")} {e.FullPath} to {ComputeOutputPath(e.FullPath, options)}");
+							});
+					PathsAwaitingProcessing.Add(e.FullPath, source);
+				};
+				watcher.Renamed += (object sender, RenamedEventArgs e) =>
+				{
+					// Cancel the existing task if it exists.
+					PathsAwaitingProcessing.TryGetValue(e.FullPath, out CancellationTokenSource? existingCancellationToken);
+					if (existingCancellationToken != null)
+					{
+						existingCancellationToken.Cancel();
+						PathsAwaitingProcessing.Remove(e.FullPath);
+					}
+
+					// Create a new task
+					CancellationTokenSource source = new CancellationTokenSource();
+					var t = Task.Run(async delegate
+							{
+								await Task.Delay(100, source.Token);
+								CompileOrCopyFiles(new List<string> { e.FullPath }, options);
+								PathsAwaitingProcessing.Remove(e.FullPath);
+								Console.WriteLine($"RENAMED | {(ShouldCompile(e.FullPath) ? "Compiled" : "Copied")} {e.FullPath} to {ComputeOutputPath(e.FullPath, options)}");
+							});
+					PathsAwaitingProcessing.Add(e.FullPath, source);
+				};
+				watcher.Error += (object sender, ErrorEventArgs e) => throw e.GetException();
+
+				watcher.IncludeSubdirectories = true;
+				watcher.EnableRaisingEvents = true;
+				Console.WriteLine($"Initial compilation complete, watching {options.Input} for changes, press any key to exit...");
+				Console.ReadKey();
+			}
+		}
+
+		static bool OutputToConsole(Options options)
+		{
+			return String.IsNullOrEmpty(options.Output);
+		}
+
+		static bool InputIsDir(Options options)
+		{
+			var outputToConsole = OutputToConsole(options);
 			if (!File.Exists(options.Input))
 			{
 				if (Directory.Exists(options.Input))
 				{
-					inputIsDir = true;
 					if (!outputToConsole && !Directory.Exists(options.Output) && File.Exists(options.Output))
 					{
 						throw new ArgumentException("Output path already exists and is a file. Because input path is a directory, output path must either also be a directory or not yet exist.");
 					}
+					return true;
 				}
 				else
 				{
 					throw new ArgumentException("Input path does not exist.");
 				}
 			}
+			return false;
+		}
 
+		static IEnumerable<string> EnumerateInputFiles(Options options)
+		{
 			IEnumerable<string> files;
+			var inputIsDir = InputIsDir(options);
 			if (inputIsDir)
 			{
 				files = Directory.EnumerateFiles(options.Input, "*", SearchOption.AllDirectories);
@@ -238,12 +351,21 @@ namespace BudhudCompiler
 			{
 				files = new List<string> { options.Input };
 			}
+			return files;
+		}
 
+		static string ComputeOutputPath(string filePath, Options options)
+		{
+			var relativeInputPath = Regex.Replace(filePath.Replace(options.Input, ""), @"^[\\/]+", "");
+			return Path.Combine(options.Output, relativeInputPath);
+		}
+
+		static void CompileOrCopyFiles(IEnumerable<string> files, Options options)
+		{
+			var outputToConsole = OutputToConsole(options);
 			foreach (var f in files)
 			{
-				var relativeInputPath = f.Replace(options.Input, "");
-				relativeInputPath = Regex.Replace(relativeInputPath, @"^[\\/]+", "");
-				var outputPath = Path.Combine(options.Output, relativeInputPath);
+				var outputPath = ComputeOutputPath(f, options);
 				if (ShouldCompile(f))
 				{
 					var result = Compile(f, options);
@@ -292,7 +414,7 @@ namespace BudhudCompiler
 			var fullText = File.ReadAllText(inputFilePath);
 			var allDirectives = ListDirectives(fullText);
 			DirectiveDict missingDirectiveFiles = new DirectiveDict();
-			var inputStream = LowercasifyStream(File.OpenRead(inputFilePath));
+			var inputStream = LowercasifyStream(File.ReadAllText(inputFilePath));
 			var fileLoader = new FileLoader(inputFilePath, options.ErrorOnMissing, options.Silent);
 			var serializerOptions = new KVSerializerOptions
 			{
@@ -422,22 +544,15 @@ namespace BudhudCompiler
 			return new MemoryStream(byteArray);
 		}
 
-		static String StreamToString(Stream input)
-		{
-			StreamReader reader = new StreamReader(input);
-			return reader.ReadToEnd();
-		}
-
 		/// <summary>
 		/// So it turns out that Valve's KV implementation is case-insensitive on object keys, but VKV is case-sensitive.
 		/// This resulted in scenarios where things like "NumberBG" and "NumberBg" would collide in budhud's compiled output.
 		/// To resolve this, we just convert all object keys to lowercase.
 		/// </summary>
 		/// <returns>A stream that is the same as the input stream but with all characters lowercase.</returns>
-		public static Stream LowercasifyStream(Stream input)
+		public static Stream LowercasifyStream(string input)
 		{
-			string inputStr = StreamToString(input);
-			string lowercasedStr = objectKeyRx.Replace(inputStr, m => m.Groups[1].Value + m.Groups[2].Value.ToLowerInvariant() + m.Groups[3].Value);
+			string lowercasedStr = objectKeyRx.Replace(input, m => m.Groups[1].Value + m.Groups[2].Value.ToLowerInvariant() + m.Groups[3].Value);
 			return StringToStream(lowercasedStr);
 		}
 
