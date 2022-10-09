@@ -10,22 +10,24 @@
 	- At this time, only Windows builds are provided. If you need builds for other platforms, consider building the program from source.
 2. View the auto-generated help docs with `budhud-compiler.exe --help`:
 	```
-	budhud-compiler 1.3.0
+	budhud-compiler 1.5.0
 	Copyright (C) 2022 Alex Van Camp
 
-	-i, --input                    Required. The specific file to compile.
+	  -i, --input                    Required. The specific file or directory to compile.
 
-	-o, --output                   (Default: ) The file to output to. Prints to console if not provided.
+	  -o, --output                   (Default: ) The file or directory to output to. Prints to console if not provided. If input is a directory then output must also be a directory (or not yet exist).
 
-	-e, --errorOnMissing           (Default: false) If true, throws an error when a #base or #include file isn't present on disk.
+	  -e, --errorOnMissing           (Default: false) If true, throws an error when a #base or #include file isn't present on disk.
 
-	-s, --silent                   (Default: false) If true, no information will be output to the console (aside from the finalized output if no output file is specified).
+	  -s, --silent                   (Default: false) If true, no information will be output to the console (aside from the finalized output if no output file is specified).
 
-	-o, --omitMissingDirectives    (Default: false) If true, directives which point to files that don't exist will be omitted from the final output.
+	  -m, --omitMissingDirectives    (Default: false) If true, directives which point to files that don't exist will be omitted from the final output.
 
-	--help                         Display this help screen.
+	  -w, --watch                    (Default: false) If true, the input file or directory will be watched for changes and automatically recompiled to the specified output path.
 
-	--version                      Display version information.
+	  --help                         Display this help screen.
+
+	  --version                      Display version information.
 	```
 3. Run the program with the desired options.
 
