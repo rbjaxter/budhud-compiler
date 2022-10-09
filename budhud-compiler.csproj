@@ -9,7 +9,7 @@
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishReadyToRun>true</PublishReadyToRun>
-    <Version>1.3.0</Version>
+    <Version>1.4.0</Version>
     <Company>Alex Van Camp</Company>
   </PropertyGroup>
   <ItemGroup>

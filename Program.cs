@@ -22,7 +22,7 @@ namespace BudhudCompiler
 			'i',
 			"input",
 			Required = true,
-			HelpText = "The specific file to compile.")]
+			HelpText = "The specific file or directory to compile.")]
 		public string Input { get; set; } = "";
 
 		[Option(
@@ -30,7 +30,7 @@ namespace BudhudCompiler
 			"output",
 			Required = false,
 			Default = "",
-			HelpText = "The file to output to. Prints to console if not provided.")]
+			HelpText = "The file or directory to output to. Prints to console if not provided. If input is a directory then output must also be a directory (or not yet exist).")]
 		public string Output { get; set; } = "";
 
 		[Option(
@@ -209,85 +209,139 @@ namespace BudhudCompiler
 
 		static void Main(string[] args)
 		{
-			// Parse the command-line arguments and then do things with those parsed args.
-			Parser.Default.ParseArguments<Options>(args).WithParsed(options =>
+			var options = Parser.Default.ParseArguments<Options>(args).Value;
+			var inputIsDir = false;
+			var outputToConsole = String.IsNullOrEmpty(options.Output);
+
+			if (!File.Exists(options.Input))
 			{
-				// If the input doesn't point to a fully qualified (aka absolute) path, make it do so.
-				var inputFilePath = options.Input;
-				if (!Path.IsPathFullyQualified(inputFilePath))
+				if (Directory.Exists(options.Input))
 				{
-					inputFilePath = Path.Combine(Directory.GetCurrentDirectory(), inputFilePath);
-				}
-
-				if (!options.Silent)
-				{
-					Console.WriteLine($"Entry point: {inputFilePath}");
-				}
-
-				var inputFileDir = FileLoader.GetDirectoryName(inputFilePath);
-				var output = "";
-				var fullText = File.ReadAllText(inputFilePath);
-				var allDirectives = ListDirectives(fullText);
-				DirectiveDict missingDirectiveFiles = new DirectiveDict();
-				var inputStream = LowercasifyStream(File.OpenRead(inputFilePath));
-				var fileLoader = new FileLoader(inputFilePath, options.ErrorOnMissing, options.Silent);
-				var serializerOptions = new KVSerializerOptions
-				{
-					FileLoader = fileLoader,
-				};
-				serializerOptions.Conditions.Add("WIN32");
-
-				var kv = KVSerializer.Create(KVSerializationFormat.KeyValues1Text);
-				KVObject data = kv.Deserialize(inputStream, serializerOptions);
-
-				// Catalog missing directives in the input file.
-				foreach (var directive in allDirectives)
-				{
-					var directivePath = Path.Combine(inputFileDir, directive.Key);
-					if (!File.Exists(directivePath))
+					inputIsDir = true;
+					if (!outputToConsole && !Directory.Exists(options.Output) && File.Exists(options.Output))
 					{
-						missingDirectiveFiles.Add(directive.Key, directive.Value);
+						throw new ArgumentException("Output path already exists and is a file. Because input path is a directory, output path must either also be a directory or not yet exist.");
 					}
-				}
-
-				// Catalog any directives that the file loader discovered, avoiding duplicates.
-				foreach (var directive in fileLoader.DiscoveredDirectives)
-				{
-					if (!allDirectives.ContainsKey(directive.Key))
-					{
-						allDirectives.Add(directive.Key, directive.Value);
-					}
-				}
-				foreach (var missingFile in fileLoader.MissingDirectiveFiles)
-				{
-					if (!missingDirectiveFiles.ContainsKey(missingFile.Key))
-					{
-						missingDirectiveFiles.Add(missingFile.Key, missingFile.Value);
-					}
-				}
-
-				if (!options.OmitMissingDirectives)
-				{
-					// Add missing directives to output.
-					foreach (var missingFile in missingDirectiveFiles)
-					{
-						var directive = DirectiveTypeToDirectiveString(missingFile.Value);
-						var newKey = directive + " \"" + missingFile.Key + "\"";
-						output = String.Concat(output, $"{newKey}\n");
-					}
-				}
-
-				output = String.Concat(output, StringifyKVObject(data));
-
-				if (!String.IsNullOrEmpty(options.Output))
-				{
-					File.WriteAllText(options.Output, output);
 				}
 				else
 				{
-					Console.Write($"\n{output}");
+					throw new ArgumentException("Input path does not exist.");
 				}
-			});
+			}
+
+			IEnumerable<string> files;
+			if (inputIsDir)
+			{
+				files = Directory.EnumerateFiles(options.Input, "*", SearchOption.AllDirectories);
+			}
+			else
+			{
+				files = new List<string> { options.Input };
+			}
+
+			foreach (var f in files)
+			{
+				var relativeInputPath = f.Replace(options.Input, "");
+				relativeInputPath = Regex.Replace(relativeInputPath, @"^[\\/]+", "");
+				var outputPath = Path.Combine(options.Output, relativeInputPath);
+				if (ShouldCompile(f))
+				{
+					var result = Compile(f, options);
+					if (outputToConsole)
+					{
+						Console.Write($"\n{result}");
+					}
+					else
+					{
+						var outputDir = Path.GetDirectoryName(outputPath);
+						if (!String.IsNullOrEmpty(outputDir) && !Directory.Exists(outputDir))
+						{
+							Directory.CreateDirectory(outputDir);
+						}
+						File.WriteAllText(outputPath, result);
+					}
+				}
+				else if (!outputToConsole)
+				{
+					var outputDir = Path.GetDirectoryName(outputPath);
+					if (!String.IsNullOrEmpty(outputDir) && !Directory.Exists(outputDir))
+					{
+						Directory.CreateDirectory(outputDir);
+					}
+					File.Copy(f, outputPath, true);
+				}
+			}
+		}
+
+		static string Compile(string input, Options options)
+		{
+			// If the input doesn't point to a fully qualified (aka absolute) path, make it do so.
+			var inputFilePath = input;
+			if (!Path.IsPathFullyQualified(inputFilePath))
+			{
+				inputFilePath = Path.Combine(Directory.GetCurrentDirectory(), inputFilePath);
+			}
+
+			if (!options.Silent)
+			{
+				Console.WriteLine($"Entry point: {inputFilePath}");
+			}
+
+			var inputFileDir = FileLoader.GetDirectoryName(inputFilePath);
+			var output = "";
+			var fullText = File.ReadAllText(inputFilePath);
+			var allDirectives = ListDirectives(fullText);
+			DirectiveDict missingDirectiveFiles = new DirectiveDict();
+			var inputStream = LowercasifyStream(File.OpenRead(inputFilePath));
+			var fileLoader = new FileLoader(inputFilePath, options.ErrorOnMissing, options.Silent);
+			var serializerOptions = new KVSerializerOptions
+			{
+				FileLoader = fileLoader,
+			};
+			serializerOptions.Conditions.Add("WIN32");
+
+			var kv = KVSerializer.Create(KVSerializationFormat.KeyValues1Text);
+			KVObject data = kv.Deserialize(inputStream, serializerOptions);
+
+			// Catalog missing directives in the input file.
+			foreach (var directive in allDirectives)
+			{
+				var directivePath = Path.Combine(inputFileDir, directive.Key);
+				if (!File.Exists(directivePath))
+				{
+					missingDirectiveFiles.Add(directive.Key, directive.Value);
+				}
+			}
+
+			// Catalog any directives that the file loader discovered, avoiding duplicates.
+			foreach (var directive in fileLoader.DiscoveredDirectives)
+			{
+				if (!allDirectives.ContainsKey(directive.Key))
+				{
+					allDirectives.Add(directive.Key, directive.Value);
+				}
+			}
+			foreach (var missingFile in fileLoader.MissingDirectiveFiles)
+			{
+				if (!missingDirectiveFiles.ContainsKey(missingFile.Key))
+				{
+					missingDirectiveFiles.Add(missingFile.Key, missingFile.Value);
+				}
+			}
+
+			if (!options.OmitMissingDirectives)
+			{
+				// Add missing directives to output.
+				foreach (var missingFile in missingDirectiveFiles)
+				{
+					var directive = DirectiveTypeToDirectiveString(missingFile.Value);
+					var newKey = directive + " \"" + missingFile.Key + "\"";
+					output = String.Concat(output, $"{newKey}\n");
+				}
+			}
+
+			output = String.Concat(output, StringifyKVObject(data));
+			return output;
 		}
 
 		/// <summary>
@@ -421,6 +475,11 @@ namespace BudhudCompiler
 				throw new InvalidDataException("Encountered a directive of an unknown type: " + input);
 			}
 			return type;
+		}
+
+		public static bool ShouldCompile(string input)
+		{
+			return input.EndsWith(".vdf") || input.EndsWith(".res") || input.EndsWith("hudanimations_manifest.txt") || input.EndsWith("mod_textures.txt");
 		}
 	}
 }
