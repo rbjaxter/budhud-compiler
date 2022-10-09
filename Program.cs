@@ -35,6 +35,14 @@ namespace BudhudCompiler
 		public IEnumerable<string> Outputs { get; set; } = new List<string>();
 
 		[Option(
+			't',
+			"trigger",
+			Required = false,
+			Separator = ',',
+			HelpText = "A list of files or directories which, when changed, will trigger a recompile, but which themselves aren't directly recompiled. If a trigger is provided, then the entire corresponding input directory will be recompiled on every change, instead of just the file(s) that changed being recompiled. Requires --watch.")]
+		public IEnumerable<string>? Triggers { get; set; }
+
+		[Option(
 			'e',
 			"errorOnMissing",
 			Required = false,
@@ -250,10 +258,26 @@ namespace BudhudCompiler
 				var inputIsDir = InputIsDir(input, output, options);
 				if (options.Watch)
 				{
-					var dirToWatch = inputIsDir ? input : Path.GetDirectoryName(input);
-					if (String.IsNullOrEmpty(dirToWatch))
+					string dirToWatch;
+					var watchingSingleFile = false;
+					var trigger = options.Triggers == null ? null : options.Triggers.ElementAt(i);
+
+					// If the user hasn't specified a trigger directory or file for this input, then just watch the input itself for changes.
+					// Else, watch the trigger directory/file.
+					if (String.IsNullOrEmpty(trigger))
 					{
-						throw new InvalidDataException($"Could not extract directory name from {input}");
+						var tmp = inputIsDir ? input : Path.GetDirectoryName(input);
+						if (String.IsNullOrEmpty(tmp))
+						{
+							throw new InvalidDataException($"Could not extract directory name from {input}");
+						}
+						dirToWatch = tmp;
+						watchingSingleFile = !inputIsDir;
+					}
+					else
+					{
+						dirToWatch = trigger;
+						watchingSingleFile = !Directory.Exists(trigger);
 					}
 
 					var watcher = new FileSystemWatcher(dirToWatch);
@@ -261,22 +285,42 @@ namespace BudhudCompiler
 									 | NotifyFilters.FileName
 									 | NotifyFilters.LastWrite;
 
-					if (inputIsDir)
-					{
-						watcher.IncludeSubdirectories = true;
-					}
-					else
+					if (watchingSingleFile)
 					{
 						watcher.Filter = Path.GetFileName(input);
 					}
+					else
+					{
+						watcher.IncludeSubdirectories = true;
+					}
 
-					watcher.Changed += (object sender, FileSystemEventArgs e) => HandleWatcherCallback("CHANGED", e.FullPath, input, output, options);
-					watcher.Created += (object sender, FileSystemEventArgs e) => HandleWatcherCallback("CREATED", e.FullPath, input, output, options);
-					watcher.Renamed += (object sender, RenamedEventArgs e) => HandleWatcherCallback("RENAMED", e.FullPath, input, output, options);
+					// If we're not using a trigger, then we can get away with only recompiling the file(s) that changed.
+					// Else, we have to blindly recompile the entire input folder on every change.
+					if (String.IsNullOrEmpty(trigger))
+					{
+						watcher.Changed += (object sender, FileSystemEventArgs e) => HandleNormalWatcherCallback("CHANGED", e.FullPath, input, output, options);
+						watcher.Created += (object sender, FileSystemEventArgs e) => HandleNormalWatcherCallback("CREATED", e.FullPath, input, output, options);
+						watcher.Renamed += (object sender, RenamedEventArgs e) => HandleNormalWatcherCallback("RENAMED", e.FullPath, input, output, options);
+					}
+					else
+					{
+						watcher.Changed += (object sender, FileSystemEventArgs e) => HandleTriggerWatcherCallback(trigger, input, output, options);
+						watcher.Created += (object sender, FileSystemEventArgs e) => HandleTriggerWatcherCallback(trigger, input, output, options);
+						watcher.Renamed += (object sender, RenamedEventArgs e) => HandleTriggerWatcherCallback(trigger, input, output, options);
+					}
+
 					watcher.Error += (object sender, ErrorEventArgs e) => throw e.GetException();
 					watcher.EnableRaisingEvents = true;
 					Watchers.Add(watcher); // Prevent garbage collection
-					Console.WriteLine($"Initial compilation complete, watching \"{input}\" for changes (will output to \"{output}\")...");
+
+					if (String.IsNullOrEmpty(trigger))
+					{
+						Console.WriteLine($"Initial compilation complete, watching \"{input}\" for changes, will output to \"{output}\"...");
+					}
+					else
+					{
+						Console.WriteLine($"Initial compilation complete, watching trigger \"{trigger}\" for changes which will compile \"{input}\" to \"{output}\"...");
+					}
 				}
 			}
 
@@ -286,7 +330,7 @@ namespace BudhudCompiler
 				Console.ReadKey();
 			}
 		}
-		static void HandleWatcherCallback(string operation, string filePath, string input, string output, Options options)
+		static void HandleNormalWatcherCallback(string operation, string filePath, string input, string output, Options options)
 		{
 			// Cancel the existing task if it exists.
 			PathsAwaitingProcessing.TryGetValue(filePath, out CancellationTokenSource? existingCancellationToken);
@@ -306,6 +350,29 @@ namespace BudhudCompiler
 						Console.WriteLine($"{operation} | {(ShouldCompile(filePath) ? "Compiled" : "Copied")} \"{filePath}\" to \"{ComputeOutputPath(filePath, input, output)}\"");
 					});
 			PathsAwaitingProcessing.Add(filePath, source);
+		}
+
+		static void HandleTriggerWatcherCallback(string trigger, string input, string output, Options options)
+		{
+			// Cancel the existing task if it exists.
+			PathsAwaitingProcessing.TryGetValue(trigger, out CancellationTokenSource? existingCancellationToken);
+			if (existingCancellationToken != null)
+			{
+				existingCancellationToken.Cancel();
+				PathsAwaitingProcessing.Remove(trigger);
+			}
+
+			// Create a new task
+			CancellationTokenSource source = new CancellationTokenSource();
+			var t = Task.Run(async delegate
+					{
+						await Task.Delay(100, source.Token);
+						Console.WriteLine($"Trigger \"{trigger}\" changed, compiling \"{input}\" to \"{output}\"...");
+						CompileOrCopyFiles(EnumerateInputFiles(input, options), input, output, options);
+						PathsAwaitingProcessing.Remove(trigger);
+						Console.WriteLine($"Compiled \"{input}\" to \"{output}\"");
+					});
+			PathsAwaitingProcessing.Add(trigger, source);
 		}
 
 		static bool OutputToConsole(Options options)

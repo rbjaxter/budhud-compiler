@@ -10,12 +10,14 @@
 	- At this time, only Windows builds are provided. If you need builds for other platforms, consider building the program from source.
 2. View the auto-generated help docs with `budhud-compiler.exe --help`:
 	```
-	budhud-compiler 1.6.0
+	budhud-compiler 1.7.0
 	Copyright (C) 2022 Alex Van Camp
 
 	  -i, --input                    Required. The specific files or directories to compile. Comma-separated.
 
 	  -o, --output                   The files or directories to output to. Comma-separated. Prints to console if not provided. If input is a directory then output must also be a directory (or not yet exist).
+
+	  -t, --trigger                  A list of files or directories which, when changed, will trigger a recompile, but which themselves aren't directly recompiled. If a trigger is provided, then the entire corresponding input directory will be recompiled on every change, instead of just the file(s) that changed being recompiled. Requires --watch.
 
 	  -e, --errorOnMissing           (Default: false) If true, throws an error when a #base or #include file isn't present on disk.
 
