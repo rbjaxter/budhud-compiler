@@ -216,6 +216,10 @@ namespace BudhudCompiler
 		static int TAB_SIZE = 4;
 		static int VALUE_COLUMN = 68;
 		static Dictionary<string, CancellationTokenSource> PathsAwaitingProcessing = new Dictionary<string, CancellationTokenSource>();
+		/// <summary>
+		/// Used to prevent garbage collection of FileSystemWatchers.
+		/// </summary>
+		static HashSet<FileSystemWatcher> Watchers = new HashSet<FileSystemWatcher>();
 
 		static void Main(string[] args)
 		{
@@ -223,7 +227,6 @@ namespace BudhudCompiler
 			var numInputs = options.Inputs.Count();
 			var numOutputs = options.Inputs.Count();
 			var outputToConsole = OutputToConsole(options);
-			var watchers = new HashSet<FileSystemWatcher>();
 
 			if (!outputToConsole && numInputs != numOutputs)
 			{
@@ -272,7 +275,7 @@ namespace BudhudCompiler
 					watcher.Renamed += (object sender, RenamedEventArgs e) => HandleWatcherCallback("RENAMED", e.FullPath, input, output, options);
 					watcher.Error += (object sender, ErrorEventArgs e) => throw e.GetException();
 					watcher.EnableRaisingEvents = true;
-					watchers.Add(watcher); // Prevent garbage collection
+					Watchers.Add(watcher); // Prevent garbage collection
 					Console.WriteLine($"Initial compilation complete, watching \"{input}\" for changes (will output to \"{output}\")...");
 				}
 			}
