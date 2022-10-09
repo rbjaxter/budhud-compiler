@@ -22,16 +22,17 @@ namespace BudhudCompiler
 			'i',
 			"input",
 			Required = true,
-			HelpText = "The specific file or directory to compile.")]
-		public string Input { get; set; } = "";
+			Separator = ',',
+			HelpText = "The specific files or directories to compile. Comma-separated.")]
+		public IEnumerable<string> Inputs { get; set; } = new List<string>();
 
 		[Option(
 			'o',
 			"output",
 			Required = false,
-			Default = "",
-			HelpText = "The file or directory to output to. Prints to console if not provided. If input is a directory then output must also be a directory (or not yet exist).")]
-		public string Output { get; set; } = "";
+			Separator = ',',
+			HelpText = "The files or directories to output to. Comma-separated. Prints to console if not provided. If input is a directory then output must also be a directory (or not yet exist).")]
+		public IEnumerable<string> Outputs { get; set; } = new List<string>();
 
 		[Option(
 			'e',
@@ -63,7 +64,7 @@ namespace BudhudCompiler
 			"watch",
 			Required = false,
 			Default = false,
-			HelpText = "If true, the input file or directory will be watched for changes and automatically recompiled to the specified output path.")]
+			HelpText = "If true, the input file or directory will be watched for changes and automatically recompiled to the specified output path. Ignored if no output paths are provided.")]
 		public bool Watch { get; set; }
 	}
 
@@ -219,113 +220,104 @@ namespace BudhudCompiler
 		static void Main(string[] args)
 		{
 			var options = Parser.Default.ParseArguments<Options>(args).Value;
-			var inputIsDir = InputIsDir(options);
+			var numInputs = options.Inputs.Count();
+			var numOutputs = options.Inputs.Count();
+			var outputToConsole = OutputToConsole(options);
+			var watchers = new HashSet<FileSystemWatcher>();
 
-			CompileOrCopyFiles(EnumerateInputFiles(options), options);
+			if (!outputToConsole && numInputs != numOutputs)
+			{
+				throw new ArgumentException("The number of outputs must match the number of inputs (unless outputting to console).");
+			}
+
+			for (var i = 0; i < numInputs; i++)
+			{
+				var input = options.Inputs.ElementAt(i);
+				var output = outputToConsole ? null : options.Outputs.ElementAt(i);
+
+				CompileOrCopyFiles(EnumerateInputFiles(input, options), input, output, options);
+
+				if (outputToConsole)
+				{
+					continue;
+				}
+
+				if (output == null) throw new InvalidOperationException("Unexpected null value");
+
+				var inputIsDir = InputIsDir(input, output, options);
+				if (options.Watch)
+				{
+					var dirToWatch = inputIsDir ? input : Path.GetDirectoryName(input);
+					if (String.IsNullOrEmpty(dirToWatch))
+					{
+						throw new InvalidDataException($"Could not extract directory name from {input}");
+					}
+
+					var watcher = new FileSystemWatcher(dirToWatch);
+					watcher.NotifyFilter = NotifyFilters.DirectoryName
+									 | NotifyFilters.FileName
+									 | NotifyFilters.LastWrite;
+
+					if (inputIsDir)
+					{
+						watcher.IncludeSubdirectories = true;
+					}
+					else
+					{
+						watcher.Filter = Path.GetFileName(input);
+					}
+
+					watcher.Changed += (object sender, FileSystemEventArgs e) => HandleWatcherCallback("CHANGED", e.FullPath, input, output, options);
+					watcher.Created += (object sender, FileSystemEventArgs e) => HandleWatcherCallback("CREATED", e.FullPath, input, output, options);
+					watcher.Renamed += (object sender, RenamedEventArgs e) => HandleWatcherCallback("RENAMED", e.FullPath, input, output, options);
+					watcher.Error += (object sender, ErrorEventArgs e) => throw e.GetException();
+					watcher.EnableRaisingEvents = true;
+					watchers.Add(watcher); // Prevent garbage collection
+					Console.WriteLine($"Initial compilation complete, watching {input} for changes (will output to {output})...");
+				}
+			}
 
 			if (options.Watch)
 			{
-				var dirToWatch = inputIsDir ? options.Input : Path.GetDirectoryName(options.Input);
-				if (String.IsNullOrEmpty(dirToWatch))
-				{
-					throw new InvalidDataException($"Could not extract directory name from {options.Input}");
-				}
-
-				using var watcher = new FileSystemWatcher(dirToWatch);
-				watcher.NotifyFilter = NotifyFilters.DirectoryName
-								 | NotifyFilters.FileName
-								 | NotifyFilters.LastWrite;
-
-				if (!inputIsDir)
-				{
-					watcher.Filter = Path.GetFileName(options.Input);
-				}
-
-				watcher.Changed += (object sender, FileSystemEventArgs e) =>
-				{
-					// Cancel the existing task if it exists.
-					PathsAwaitingProcessing.TryGetValue(e.FullPath, out CancellationTokenSource? existingCancellationToken);
-					if (existingCancellationToken != null)
-					{
-						existingCancellationToken.Cancel();
-						PathsAwaitingProcessing.Remove(e.FullPath);
-					}
-
-					// Create a new task
-					CancellationTokenSource source = new CancellationTokenSource();
-					var t = Task.Run(async delegate
-							{
-								await Task.Delay(100, source.Token);
-								CompileOrCopyFiles(new List<string> { e.FullPath }, options);
-								PathsAwaitingProcessing.Remove(e.FullPath);
-								Console.WriteLine($"CHANGED | {(ShouldCompile(e.FullPath) ? "Compiled" : "Copied")} {e.FullPath} to {ComputeOutputPath(e.FullPath, options)}");
-							});
-					PathsAwaitingProcessing.Add(e.FullPath, source);
-				};
-				watcher.Created += (object sender, FileSystemEventArgs e) =>
-				{
-					// Cancel the existing task if it exists.
-					PathsAwaitingProcessing.TryGetValue(e.FullPath, out CancellationTokenSource? existingCancellationToken);
-					if (existingCancellationToken != null)
-					{
-						existingCancellationToken.Cancel();
-						PathsAwaitingProcessing.Remove(e.FullPath);
-					}
-
-					// Create a new task
-					CancellationTokenSource source = new CancellationTokenSource();
-					var t = Task.Run(async delegate
-							{
-								await Task.Delay(100, source.Token);
-								CompileOrCopyFiles(new List<string> { e.FullPath }, options);
-								PathsAwaitingProcessing.Remove(e.FullPath);
-								Console.WriteLine($"CREATED | {(ShouldCompile(e.FullPath) ? "Compiled" : "Copied")} {e.FullPath} to {ComputeOutputPath(e.FullPath, options)}");
-							});
-					PathsAwaitingProcessing.Add(e.FullPath, source);
-				};
-				watcher.Renamed += (object sender, RenamedEventArgs e) =>
-				{
-					// Cancel the existing task if it exists.
-					PathsAwaitingProcessing.TryGetValue(e.FullPath, out CancellationTokenSource? existingCancellationToken);
-					if (existingCancellationToken != null)
-					{
-						existingCancellationToken.Cancel();
-						PathsAwaitingProcessing.Remove(e.FullPath);
-					}
-
-					// Create a new task
-					CancellationTokenSource source = new CancellationTokenSource();
-					var t = Task.Run(async delegate
-							{
-								await Task.Delay(100, source.Token);
-								CompileOrCopyFiles(new List<string> { e.FullPath }, options);
-								PathsAwaitingProcessing.Remove(e.FullPath);
-								Console.WriteLine($"RENAMED | {(ShouldCompile(e.FullPath) ? "Compiled" : "Copied")} {e.FullPath} to {ComputeOutputPath(e.FullPath, options)}");
-							});
-					PathsAwaitingProcessing.Add(e.FullPath, source);
-				};
-				watcher.Error += (object sender, ErrorEventArgs e) => throw e.GetException();
-
-				watcher.IncludeSubdirectories = true;
-				watcher.EnableRaisingEvents = true;
-				Console.WriteLine($"Initial compilation complete, watching {options.Input} for changes, press any key to exit...");
+				Console.WriteLine("Press any key to exit...");
 				Console.ReadKey();
 			}
+		}
+		static void HandleWatcherCallback(string operation, string filePath, string input, string output, Options options)
+		{
+			// Cancel the existing task if it exists.
+			PathsAwaitingProcessing.TryGetValue(filePath, out CancellationTokenSource? existingCancellationToken);
+			if (existingCancellationToken != null)
+			{
+				existingCancellationToken.Cancel();
+				PathsAwaitingProcessing.Remove(filePath);
+			}
+
+			// Create a new task
+			CancellationTokenSource source = new CancellationTokenSource();
+			var t = Task.Run(async delegate
+					{
+						await Task.Delay(100, source.Token);
+						CompileOrCopyFiles(new List<string> { filePath }, input, output, options);
+						PathsAwaitingProcessing.Remove(filePath);
+						Console.WriteLine($"{operation} | {(ShouldCompile(filePath) ? "Compiled" : "Copied")} {filePath} to {ComputeOutputPath(filePath, input, output)}");
+					});
+			PathsAwaitingProcessing.Add(filePath, source);
 		}
 
 		static bool OutputToConsole(Options options)
 		{
-			return String.IsNullOrEmpty(options.Output);
+			return options.Outputs.Count() <= 0;
 		}
 
-		static bool InputIsDir(Options options)
+		static bool InputIsDir(string input, string output, Options options)
 		{
 			var outputToConsole = OutputToConsole(options);
-			if (!File.Exists(options.Input))
+			if (!File.Exists(input))
 			{
-				if (Directory.Exists(options.Input))
+				if (Directory.Exists(input))
 				{
-					if (!outputToConsole && !Directory.Exists(options.Output) && File.Exists(options.Output))
+					if (!outputToConsole && !Directory.Exists(output) && File.Exists(output))
 					{
 						throw new ArgumentException("Output path already exists and is a file. Because input path is a directory, output path must either also be a directory or not yet exist.");
 					}
@@ -339,33 +331,31 @@ namespace BudhudCompiler
 			return false;
 		}
 
-		static IEnumerable<string> EnumerateInputFiles(Options options)
+		static IEnumerable<string> EnumerateInputFiles(string input, Options options)
 		{
 			IEnumerable<string> files;
-			var inputIsDir = InputIsDir(options);
-			if (inputIsDir)
+			if (Directory.Exists(input))
 			{
-				files = Directory.EnumerateFiles(options.Input, "*", SearchOption.AllDirectories);
+				files = Directory.EnumerateFiles(input, "*", SearchOption.AllDirectories);
 			}
 			else
 			{
-				files = new List<string> { options.Input };
+				files = new List<string> { input };
 			}
 			return files;
 		}
 
-		static string ComputeOutputPath(string filePath, Options options)
+		static string ComputeOutputPath(string filePath, string input, string output)
 		{
-			var relativeInputPath = Regex.Replace(filePath.Replace(options.Input, ""), @"^[\\/]+", "");
-			return Path.Combine(options.Output, relativeInputPath);
+			var relativeInputPath = Regex.Replace(filePath.Replace(input, ""), @"^[\\/]+", "");
+			return Path.Combine(output, relativeInputPath);
 		}
 
-		static void CompileOrCopyFiles(IEnumerable<string> files, Options options)
+		static void CompileOrCopyFiles(IEnumerable<string> files, string input, string? output, Options options)
 		{
-			var outputToConsole = OutputToConsole(options);
+			var outputToConsole = output == null;
 			foreach (var f in files)
 			{
-				var outputPath = ComputeOutputPath(f, options);
 				if (ShouldCompile(f))
 				{
 					var result = Compile(f, options);
@@ -375,6 +365,8 @@ namespace BudhudCompiler
 					}
 					else
 					{
+						if (output == null) throw new InvalidOperationException("Unexpected null value");
+						var outputPath = ComputeOutputPath(f, input, output);
 						var outputDir = Path.GetDirectoryName(outputPath);
 						if (!String.IsNullOrEmpty(outputDir) && !Directory.Exists(outputDir))
 						{
@@ -385,6 +377,8 @@ namespace BudhudCompiler
 				}
 				else if (!outputToConsole)
 				{
+					if (output == null) throw new InvalidOperationException("Unexpected null value");
+					var outputPath = ComputeOutputPath(f, input, output);
 					var outputDir = Path.GetDirectoryName(outputPath);
 					if (!String.IsNullOrEmpty(outputDir) && !Directory.Exists(outputDir))
 					{
