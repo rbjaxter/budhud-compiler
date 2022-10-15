@@ -454,7 +454,27 @@ namespace BudhudCompiler
 					{
 						Directory.CreateDirectory(outputDir);
 					}
-					File.Copy(f, outputPath, true);
+
+					try
+					{
+						File.Copy(f, outputPath, true);
+					}
+					catch (IOException ex)
+					{
+						// TF2 locks font files while the game is open, which means that compiling the HUD while the game is running won't work.
+						// To work around this, we detect IOExceptions on font files and just ignore them.
+						if (Path.GetExtension(f) == ".ttf" && Regex.IsMatch(ex.Message, @"because it is being used by another process\.$"))
+						{
+							if (!options.Silent)
+							{
+								Console.WriteLine($"Font file {f} locked, can't overwrite. Skipping.");
+							}
+						}
+						else
+						{
+							throw ex;
+						}
+					}
 				}
 			}
 		}
