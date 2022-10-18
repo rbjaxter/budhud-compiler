@@ -218,9 +218,13 @@ namespace BudhudCompiler
 		/// </summary>
 		static Regex directiveRx = new Regex(@"(^\s*(?:#base|#include)\s*""(.+)"")", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		/// <summary>
-		/// Used extract keys whose values are objects. Supports keys with conditionals after them.
+		/// Used to extract keys whose values are objects. Supports keys with conditionals after them.
 		/// </summary>
 		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s+(?:\[.+\])*\s+{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+		/// <summary>
+		/// Used to convert "\" to "/" in directive file paths.
+		/// </summary>
+		static Regex backslashRx = new Regex(@"\\", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		static int TAB_SIZE = 4;
 		static int VALUE_COLUMN = 68;
 		static Dictionary<string, CancellationTokenSource> PathsAwaitingProcessing = new Dictionary<string, CancellationTokenSource>();
@@ -557,14 +561,14 @@ namespace BudhudCompiler
 					// to the output file instead of the input file.
 					if (absOutputPath == null)
 					{
-						newKey = directive + " \"" + missingFile.Key + "\"";
+						newKey = directive + " \"" + backslashRx.Replace(missingFile.Key, "/") + "\"";
 					}
 					else
 					{
 						var outputDirName = FileLoader.GetDirectoryName(absOutputPath);
 						var absDirectivePath = Path.GetFullPath(Path.Combine(inputDirName, missingFile.Key));
 						var outputRelativePath = Path.GetRelativePath(outputDirName, absDirectivePath);
-						newKey = directive + " \"" + outputRelativePath + "\"";
+						newKey = directive + " \"" + backslashRx.Replace(outputRelativePath, "/") + "\"";
 					}
 					output = String.Concat(output, $"{newKey}\n");
 				}
