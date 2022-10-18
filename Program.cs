@@ -428,15 +428,15 @@ namespace BudhudCompiler
 			{
 				if (ShouldCompile(f))
 				{
-					var result = Compile(f, options);
-					if (outputToConsole)
+					var outputPath = output == null ? null : ComputeOutputPath(f, input, output);
+					var result = Compile(f, outputPath, options);
+					if (outputPath == null)
 					{
 						Console.Write($"\n{result}");
 					}
 					else
 					{
 						if (output == null) throw new InvalidOperationException("Unexpected null value");
-						var outputPath = ComputeOutputPath(f, input, output);
 						var outputDir = Path.GetDirectoryName(outputPath);
 						if (!String.IsNullOrEmpty(outputDir) && !Directory.Exists(outputDir))
 						{
@@ -479,27 +479,34 @@ namespace BudhudCompiler
 			}
 		}
 
-		static string Compile(string input, Options options)
+		static string Compile(string inputPath, string? outputPath, Options options)
 		{
 			// If the input doesn't point to a fully qualified (aka absolute) path, make it do so.
-			var inputFilePath = input;
-			if (!Path.IsPathFullyQualified(inputFilePath))
+			var absInputPath = inputPath;
+			if (!Path.IsPathFullyQualified(absInputPath))
 			{
-				inputFilePath = Path.Combine(Directory.GetCurrentDirectory(), inputFilePath);
+				absInputPath = Path.Combine(Directory.GetCurrentDirectory(), absInputPath);
+			}
+
+			// Do the same for the output.
+			var absOutputPath = outputPath;
+			if (absOutputPath != null && !Path.IsPathFullyQualified(absOutputPath))
+			{
+				absOutputPath = Path.Combine(Directory.GetCurrentDirectory(), absOutputPath);
 			}
 
 			if (!options.Silent)
 			{
-				Console.WriteLine($"Entry point: {inputFilePath}");
+				Console.WriteLine($"Entry point: {absInputPath}");
 			}
 
-			var inputFileDir = FileLoader.GetDirectoryName(inputFilePath);
+			var inputDirName = FileLoader.GetDirectoryName(absInputPath);
 			var output = "";
-			var fullText = File.ReadAllText(inputFilePath);
+			var fullText = File.ReadAllText(absInputPath);
 			var allDirectives = ListDirectives(fullText);
 			DirectiveDict missingDirectiveFiles = new DirectiveDict();
-			var inputStream = LowercasifyStream(File.ReadAllText(inputFilePath));
-			var fileLoader = new FileLoader(inputFilePath, options.ErrorOnMissing, options.Silent);
+			var inputStream = LowercasifyStream(File.ReadAllText(absInputPath));
+			var fileLoader = new FileLoader(absInputPath, options.ErrorOnMissing, options.Silent);
 			var serializerOptions = new KVSerializerOptions
 			{
 				FileLoader = fileLoader,
@@ -512,7 +519,7 @@ namespace BudhudCompiler
 			// Catalog missing directives in the input file.
 			foreach (var directive in allDirectives)
 			{
-				var directivePath = Path.Combine(inputFileDir, directive.Key);
+				var directivePath = Path.Combine(inputDirName, directive.Key);
 				if (!File.Exists(directivePath))
 				{
 					missingDirectiveFiles.Add(directive.Key, directive.Value);
@@ -541,7 +548,24 @@ namespace BudhudCompiler
 				foreach (var missingFile in missingDirectiveFiles)
 				{
 					var directive = DirectiveTypeToDirectiveString(missingFile.Value);
-					var newKey = directive + " \"" + missingFile.Key + "\"";
+					string newKey;
+
+					// If no output path was provided, then we are outputting to console.
+					// If that's the case, then we can't resolve the missing directives 
+					// relative to the output path, so we just output them unchanged.
+					// Else, we have to rewrite the directive paths to be relative
+					// to the output file instead of the input file.
+					if (absOutputPath == null)
+					{
+						newKey = directive + " \"" + missingFile.Key + "\"";
+					}
+					else
+					{
+						var outputDirName = FileLoader.GetDirectoryName(absOutputPath);
+						var absDirectivePath = Path.GetFullPath(Path.Combine(inputDirName, missingFile.Key));
+						var outputRelativePath = Path.GetRelativePath(outputDirName, absDirectivePath);
+						newKey = directive + " \"" + outputRelativePath + "\"";
+					}
 					output = String.Concat(output, $"{newKey}\n");
 				}
 			}
