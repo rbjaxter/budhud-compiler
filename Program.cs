@@ -220,7 +220,7 @@ namespace BudhudCompiler
 		/// <summary>
 		/// Used to extract keys whose values are objects. Supports keys with conditionals after them.
 		/// </summary>
-		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s+(?:\[.+\])*\s+{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s*(?:\[.*\])*(?:\/\/.*\n)?\s*{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		/// <summary>
 		/// Used to convert "\" to "/" in directive file paths.
 		/// </summary>
