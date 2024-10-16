@@ -476,7 +476,7 @@ namespace BudhudCompiler
 						}
 						else
 						{
-							throw ex;
+							throw;
 						}
 					}
 				}
@@ -555,7 +555,7 @@ namespace BudhudCompiler
 					string newKey;
 
 					// If no output path was provided, then we are outputting to console.
-					// If that's the case, then we can't resolve the missing directives 
+					// If that's the case, then we can't resolve the missing directives
 					// relative to the output path, so we just output them unchanged.
 					// Else, we have to rewrite the directive paths to be relative
 					// to the output file instead of the input file.
