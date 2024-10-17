@@ -123,7 +123,7 @@ namespace BudhudCompiler
 			var done = false;
 			while (!foundInLastFile && !done)
 			{
-				var rx = new Regex(@"(^\s*(?:#base|#include)\s*""" + Regex.Escape(filePath) + @"\"")", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+				var rx = new Regex(@"(^\s*""?(?:#base|#include)""?\s*""" + Regex.Escape(filePath) + @"\"")", RegexOptions.IgnoreCase | RegexOptions.Multiline);
 				var latestHistoryEntry = History.Peek();
 				resolvedFilePath = Path.GetFullPath(Path.Combine(latestHistoryEntry.dirName, filePath));
 				foundInLastFile = rx.IsMatch(latestHistoryEntry.contents);
@@ -192,7 +192,7 @@ namespace BudhudCompiler
 			}
 
 			// Open the file and return the stream to VKV.
-			return Program.LowercasifyStream(File.ReadAllText(resolvedFilePath));
+			return Program.NormalizeStream(File.ReadAllText(resolvedFilePath));
 		}
 
 		public static string GetDirectoryName(string filePath)
@@ -216,11 +216,11 @@ namespace BudhudCompiler
 		/// <summary>
 		/// Used to extract all #base and #include directives from a file.
 		/// </summary>
-		static Regex directiveRx = new Regex(@"(^\s*(?:#base|#include)\s*""(.+)"")", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+		static Regex directiveRx = new Regex(@"(^\s*""?(#base|#include)""?\s*""(.+)"")", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		/// <summary>
 		/// Used to extract keys whose values are objects. Supports keys with conditionals after them.
 		/// </summary>
-		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s+(?:\[.+\])*\s+{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+		static Regex objectKeyRx = new Regex(@"(""?)(\w+)(""?\s*(?:\[.*\])*(?:\/\/.*\n)?\s*{)", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 		/// <summary>
 		/// Used to convert "\" to "/" in directive file paths.
 		/// </summary>
@@ -476,7 +476,7 @@ namespace BudhudCompiler
 						}
 						else
 						{
-							throw ex;
+							throw;
 						}
 					}
 				}
@@ -509,7 +509,7 @@ namespace BudhudCompiler
 			var fullText = File.ReadAllText(absInputPath);
 			var allDirectives = ListDirectives(fullText);
 			DirectiveDict missingDirectiveFiles = new DirectiveDict();
-			var inputStream = LowercasifyStream(File.ReadAllText(absInputPath));
+			var inputStream = NormalizeStream(File.ReadAllText(absInputPath));
 			var fileLoader = new FileLoader(absInputPath, options.ErrorOnMissing, options.Silent);
 			var serializerOptions = new KVSerializerOptions
 			{
@@ -555,7 +555,7 @@ namespace BudhudCompiler
 					string newKey;
 
 					// If no output path was provided, then we are outputting to console.
-					// If that's the case, then we can't resolve the missing directives 
+					// If that's the case, then we can't resolve the missing directives
 					// relative to the output path, so we just output them unchanged.
 					// Else, we have to rewrite the directive paths to be relative
 					// to the output file instead of the input file.
@@ -643,8 +643,8 @@ namespace BudhudCompiler
 			foreach (Match match in directiveMatches)
 			{
 				var groups = match.Groups;
-				var type = DirectiveStringToDirectiveType(groups[1].ToString());
-				output.Add(groups[2].ToString(), type);
+				var type = DirectiveStringToDirectiveType(groups[2].ToString());
+				output.Add(groups[3].ToString(), type);
 			}
 
 			return output;
@@ -660,12 +660,17 @@ namespace BudhudCompiler
 		/// So it turns out that Valve's KV implementation is case-insensitive on object keys, but VKV is case-sensitive.
 		/// This resulted in scenarios where things like "NumberBG" and "NumberBg" would collide in budhud's compiled output.
 		/// To resolve this, we just convert all object keys to lowercase.
+		///
+		/// Also, ValveKeyValue.KVSerializer.Deserialize doesn't seem to like quotes around directive key words.
+		/// This can cause exceptions during budhud compilation.
+		/// To resolve this, we just unquote all directive key words.
 		/// </summary>
-		/// <returns>A stream that is the same as the input stream but with all characters lowercase.</returns>
-		public static Stream LowercasifyStream(string input)
+		/// <returns>A stream that is the same as the input stream but with all characters lowercase and all directive key words unquoted.</returns>
+		public static Stream NormalizeStream(string input)
 		{
 			string lowercasedStr = objectKeyRx.Replace(input, m => m.Groups[1].Value + m.Groups[2].Value.ToLowerInvariant() + m.Groups[3].Value);
-			return StringToStream(lowercasedStr);
+			string normalizedStr = directiveRx.Replace(lowercasedStr, m => $"{m.Groups[2].Value} \"{m.Groups[3].Value}\"");
+			return StringToStream(normalizedStr);
 		}
 
 		public static string DirectiveTypeToDirectiveString(DirectiveType input)
@@ -689,11 +694,11 @@ namespace BudhudCompiler
 		public static DirectiveType DirectiveStringToDirectiveType(string input)
 		{
 			DirectiveType type;
-			if (Regex.IsMatch(input, @"\s*#base\s*"""))
+			if (input == "#base")
 			{
 				type = DirectiveType.BASE;
 			}
-			else if (Regex.IsMatch(input, @"\s*#include\s*"""))
+			else if (input == "#include")
 			{
 				type = DirectiveType.INCLUDE;
 			}
